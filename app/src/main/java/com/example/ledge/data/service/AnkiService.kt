@@ -13,16 +13,18 @@ class AnkiService(private val context: Context) {
     private val CONTENT_URI = Uri.parse("content://$AUTHORITY")
     private val DECKS_URI = Uri.withAppendedPath(CONTENT_URI, "decks")
 
-    fun isAnkiDroidInstalled(): Boolean {
-        return try {
-            context.packageManager.getPackageInfo("com.ichi2.anki", 0)
-            true
-        } catch (e: PackageManager.NameNotFoundException) {
-            false
+    fun getAnkiPackageName(): String? {
+        val packages = listOf("com.ichi2.anki", "com.ichi2.anki.parallel")
+        for (pkg in packages) {
+            try {
+                context.packageManager.getPackageInfo(pkg, 0)
+                return pkg
+            } catch (e: PackageManager.NameNotFoundException) {}
         }
+        return null
     }
 
-    fun getDecks(): List<AnkiDeck> {
+    fun getDecks(): Result<List<AnkiDeck>> {
         val decks = mutableListOf<AnkiDeck>()
         val projection = arrayOf("id", "name")
         
@@ -31,7 +33,11 @@ class AnkiService(private val context: Context) {
                 DECKS_URI, projection, null, null, null
             )
 
-            cursor?.use {
+            if (cursor == null) {
+                return Result.failure(Exception("ContentResolver returned null cursor. Is AnkiDroid API enabled in its settings?"))
+            }
+
+            cursor.use {
                 val idIndex = it.getColumnIndex("id")
                 val nameIndex = it.getColumnIndex("name")
                 if (idIndex != -1 && nameIndex != -1) {
@@ -40,9 +46,9 @@ class AnkiService(private val context: Context) {
                     }
                 }
             }
-            decks
+            Result.success(decks)
         } catch (e: Exception) {
-            emptyList()
+            Result.failure(e)
         }
     }
 
