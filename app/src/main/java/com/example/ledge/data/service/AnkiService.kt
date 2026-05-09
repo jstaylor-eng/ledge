@@ -34,7 +34,7 @@ class AnkiService(private val context: Context) {
             )
 
             if (cursor == null) {
-                return Result.failure(Exception("ContentResolver returned null cursor. Is AnkiDroid API enabled in its settings?"))
+                return Result.failure(Exception("AnkiDroid returned no data. Check: AnkiDroid > Settings > Advanced > AnkiDroid API."))
             }
 
             cursor.use {
@@ -47,6 +47,8 @@ class AnkiService(private val context: Context) {
                 }
             }
             Result.success(decks)
+        } catch (e: SecurityException) {
+            Result.failure(Exception("Security Error: Permission Denied. Try granting it in Android Settings > Apps > Ledge > Permissions."))
         } catch (e: Exception) {
             Result.failure(e)
         }

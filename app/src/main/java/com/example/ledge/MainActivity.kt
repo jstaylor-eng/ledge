@@ -1,7 +1,10 @@
 package com.example.ledge
 
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -75,7 +78,10 @@ fun LedgeApp(voiceService: VoiceService) {
 
     val ankiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         hasAnkiPermission = isGranted
-        diagnosticInfo = if (isGranted) "Permission Granted" else "Permission Denied"
+        diagnosticInfo = if (isGranted) "Handshake Success!" else "System Denied Access"
+        if (isGranted) {
+            ankiService.getDecks().onSuccess { decks = it }.onFailure { diagnosticInfo = it.message ?: "Fetch failed" }
+        }
     }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
 
@@ -87,20 +93,21 @@ fun LedgeApp(voiceService: VoiceService) {
         if (ankiPkg == null) {
             Text("⚠️ AnkiDroid not detected!", color = Color.Red)
         } else {
-            Text("✅ Detected: $ankiPkg", color = Color(0xFF388E3C))
+            Text("✅ Found AnkiDroid ($ankiPkg)", color = Color(0xFF388E3C))
         }
         
         if (diagnosticInfo.isNotEmpty()) {
-            Text("Info: $diagnosticInfo", style = MaterialTheme.typography.bodySmall)
+            Text("Status: $diagnosticInfo", color = Color.Magenta, style = MaterialTheme.typography.bodySmall)
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        if (!hasAnkiPermission) {
+        if (!hasAnkiPermission || decks.isEmpty()) {
+            Text("Step 1: Connection", style = MaterialTheme.typography.titleMedium)
             Button(onClick = { 
                 ankiLauncher.launch("com.ichi2.anki.permission.READ_WRITE_PERMISSION")
             }, modifier = Modifier.fillMaxWidth()) {
-                Text("1. Request Permission")
+                Text("Auto-Request Access")
             }
             
             Spacer(modifier = Modifier.height(8.dp))
@@ -111,20 +118,26 @@ fun LedgeApp(voiceService: VoiceService) {
                     hasAnkiPermission = true
                     diagnosticInfo = "Success! Decks loaded."
                 }.onFailure {
-                    diagnosticInfo = "Error: ${it.message}"
+                    diagnosticInfo = it.message ?: "Unknown Error"
                 }
             }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
-                Text("2. Force Load Decks")
+                Text("Try Fetching Directly")
             }
-            
-            Text(
-                "Tip: In AnkiDroid, go to Settings > Advanced > AnkiDroid API and check it.",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(top = 8.dp)
-            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("If nothing happens above:", style = MaterialTheme.typography.bodySmall)
+            Button(onClick = { 
+                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.fromParts("package", context.packageName, null)
+                }
+                context.startActivity(intent)
+            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) {
+                Text("Open App Settings (Grant Manually)")
+            }
         } else {
             // Setup Section
             if (!isGemmaReady) {
+                Text("Step 2: Initialize AI", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(
                     value = modelPath,
                     onValueChange = { modelPath = it },
@@ -145,18 +158,20 @@ fun LedgeApp(voiceService: VoiceService) {
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(text = "Select Deck Context:")
-                Button(onClick = { 
-                    ankiService.getDecks().onSuccess { decks = it }.onFailure { diagnosticInfo = it.message ?: "Unknown error" }
-                }) { Text("Refresh Decks") }
-                
-                LazyColumn(modifier = Modifier.height(100.dp)) {
+                LazyColumn(modifier = Modifier.height(150.dp)) {
                     items(decks) { deck ->
-                        TextButton(onClick = { selectedDeck = deck }) { Text(deck.name) }
+                        val isSelected = selectedDeck?.id == deck.id
+                        TextButton(
+                            onClick = { selectedDeck = deck },
+                            colors = if (isSelected) ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.textButtonColors()
+                        ) {
+                            Text(deck.name)
+                        }
                     }
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("AI Ready | Deck: ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
+                    Text("🤖 AI Active | Deck: ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
                     Button(onClick = { isGemmaReady = false }) { Text("Settings") }
                 }
             }
@@ -184,7 +199,7 @@ fun LedgeApp(voiceService: VoiceService) {
                     value = chatInput,
                     onValueChange = { chatInput = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type or use Mic...") }
+                    placeholder = { Text("Talk to tutor...") }
                 )
                 IconButton(onClick = {
                     if (hasMicPermission) {
