@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -71,17 +72,40 @@ fun LedgeApp(voiceService: VoiceService) {
         mutableStateOf(ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
 
-    val ankiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasAnkiPermission = it }
+    val ankiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        hasAnkiPermission = isGranted
+        if (isGranted) {
+            decks = ankiService.getDecks()
+            if (decks.isEmpty()) {
+                Toast.makeText(context, "Permission granted but no decks found. Check AnkiDroid settings!", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
 
     Column(modifier = Modifier.padding(16.dp)) {
         Text(text = "Ledge: Offline AI Tutor", style = MaterialTheme.typography.headlineMedium)
+        
+        // Diagnostic Status
+        if (!ankiService.isAnkiDroidInstalled()) {
+            Text("⚠️ AnkiDroid not detected!", color = Color.Red)
+        } else if (!hasAnkiPermission) {
+            Text("⚠️ Permission needed for AnkiDroid", color = Color.Gray)
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         if (!hasAnkiPermission) {
-            Button(onClick = { ankiLauncher.launch("com.ichi2.anki.permission.READ_WRITE_PERMISSION") }) {
+            Button(onClick = { 
+                ankiLauncher.launch("com.ichi2.anki.permission.READ_WRITE_PERMISSION")
+            }, modifier = Modifier.fillMaxWidth()) {
                 Text("Grant Anki Access")
             }
+            Text(
+                "Tip: Ensure AnkiDroid > Settings > Advanced > AnkiDroid API is checked.",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         } else {
             // Setup Section
             if (!isGemmaReady) {
@@ -105,7 +129,12 @@ fun LedgeApp(voiceService: VoiceService) {
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 Text(text = "Select Deck Context:")
-                Button(onClick = { decks = ankiService.getDecks() }) { Text("Load Decks") }
+                Button(onClick = { 
+                    decks = ankiService.getDecks()
+                    if (decks.isEmpty()) {
+                        Toast.makeText(context, "No decks found. Try enabling API in AnkiDroid settings.", Toast.LENGTH_LONG).show()
+                    }
+                }) { Text("Load/Refresh Decks") }
                 LazyColumn(modifier = Modifier.height(100.dp)) {
                     items(decks) { deck ->
                         TextButton(onClick = { selectedDeck = deck }) { Text(deck.name) }
