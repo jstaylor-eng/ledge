@@ -16,5 +16,6 @@ local.properties
 # Logs
 *.log
 
-# APKs
+# APKs (Except release folder)
 *.apk
+!release/
