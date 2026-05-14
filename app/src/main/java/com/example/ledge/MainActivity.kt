@@ -78,9 +78,16 @@ fun LedgeApp(voiceService: VoiceService) {
 
     val ankiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         hasAnkiPermission = isGranted
-        diagnosticInfo = if (isGranted) "Handshake Success!" else "System Denied Access"
         if (isGranted) {
-            ankiService.getDecks().onSuccess { decks = it }.onFailure { diagnosticInfo = it.message ?: "Fetch failed" }
+            diagnosticInfo = "Permission Granted! Fetching..."
+            ankiService.getDecks().onSuccess { 
+                decks = it 
+                diagnosticInfo = "Decks loaded: ${it.size}"
+            }.onFailure { 
+                diagnosticInfo = "Fetch error: ${it.message}" 
+            }
+        } else {
+            diagnosticInfo = "Permission Denied by System"
         }
     }
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
@@ -102,12 +109,13 @@ fun LedgeApp(voiceService: VoiceService) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        if (!hasAnkiPermission || decks.isEmpty()) {
-            Text("Step 1: Connection", style = MaterialTheme.typography.titleMedium)
+        if (decks.isEmpty()) {
+            Text("Connection Setup", style = MaterialTheme.typography.titleMedium)
+            
             Button(onClick = { 
                 ankiLauncher.launch("com.ichi2.anki.permission.READ_WRITE_PERMISSION")
             }, modifier = Modifier.fillMaxWidth()) {
-                Text("Auto-Request Access")
+                Text("1. Request Access")
             }
             
             Spacer(modifier = Modifier.height(8.dp))
@@ -121,18 +129,21 @@ fun LedgeApp(voiceService: VoiceService) {
                     diagnosticInfo = it.message ?: "Unknown Error"
                 }
             }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
-                Text("Try Fetching Directly")
+                Text("2. Check Connection / Force Load")
             }
 
             Spacer(modifier = Modifier.height(16.dp))
-            Text("If nothing happens above:", style = MaterialTheme.typography.bodySmall)
+            Text("Troubleshooting:", style = MaterialTheme.typography.bodySmall)
+            Text("1. Open AnkiDroid > Settings > Advanced > Enable API", style = MaterialTheme.typography.bodySmall)
+            Text("2. If auto-request fails, use button below:", style = MaterialTheme.typography.bodySmall)
+            
             Button(onClick = { 
                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                     data = Uri.fromParts("package", context.packageName, null)
                 }
                 context.startActivity(intent)
             }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) {
-                Text("Open App Settings (Grant Manually)")
+                Text("Open App Settings")
             }
         } else {
             // Setup Section

@@ -1,0 +1,20 @@
+# Build artifacts
+build/
+.gradle/
+app/build/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Local configuration
+local.properties
+.DS_Store
+
+# Logs
+*.log
+
+# APKs
+*.apk

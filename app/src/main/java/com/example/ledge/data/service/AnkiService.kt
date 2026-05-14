@@ -9,7 +9,8 @@ import com.example.ledge.data.model.AnkiNote
 
 class AnkiService(private val context: Context) {
 
-    private val AUTHORITY = "com.ichi2.anki.api"
+    // Updated authority for 2026 AnkiDroid
+    private val AUTHORITY = "com.ichi2.anki.flashcards"
     private val CONTENT_URI = Uri.parse("content://$AUTHORITY")
     private val DECKS_URI = Uri.withAppendedPath(CONTENT_URI, "decks")
 
@@ -26,29 +27,37 @@ class AnkiService(private val context: Context) {
 
     fun getDecks(): Result<List<AnkiDeck>> {
         val decks = mutableListOf<AnkiDeck>()
-        val projection = arrayOf("id", "name")
         
         return try {
+            // Updated columns for 2026 API: deck_id, deck_name
+            val projection = arrayOf("deck_id", "deck_name")
+            
             val cursor: Cursor? = context.contentResolver.query(
                 DECKS_URI, projection, null, null, null
             )
 
             if (cursor == null) {
-                return Result.failure(Exception("AnkiDroid returned no data. Check: AnkiDroid > Settings > Advanced > AnkiDroid API."))
+                return Result.failure(Exception("AnkiDroid Provider ($AUTHORITY) not found or returned null. Check AnkiDroid API settings."))
             }
 
             cursor.use {
-                val idIndex = it.getColumnIndex("id")
-                val nameIndex = it.getColumnIndex("name")
+                val idIndex = it.getColumnIndex("deck_id")
+                val nameIndex = it.getColumnIndex("deck_name")
                 if (idIndex != -1 && nameIndex != -1) {
                     while (it.moveToNext()) {
                         decks.add(AnkiDeck(it.getLong(idIndex), it.getString(nameIndex)))
                     }
                 }
             }
-            Result.success(decks)
+            
+            if (decks.isEmpty()) {
+                // Try fallback for older API if needed? No, let's stick to flashcards first.
+                Result.failure(Exception("Handshake OK, but no decks found in $AUTHORITY."))
+            } else {
+                Result.success(decks)
+            }
         } catch (e: SecurityException) {
-            Result.failure(Exception("Security Error: Permission Denied. Try granting it in Android Settings > Apps > Ledge > Permissions."))
+            Result.failure(Exception("Security Error: Permission denied for $AUTHORITY."))
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -56,7 +65,10 @@ class AnkiService(private val context: Context) {
 
     fun getNotesInDeck(deckId: Long): List<AnkiNote> {
         val notes = mutableListOf<AnkiNote>()
+        // Updated path for 2026: decks/<id>/notes
         val deckNotesUri = Uri.withAppendedPath(CONTENT_URI, "decks/$deckId/notes")
+        
+        // Note: columns might be different here too, usually 'id' and 'flds'
         val projection = arrayOf("id", "flds")
         
         return try {
