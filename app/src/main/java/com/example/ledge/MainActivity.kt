@@ -69,8 +69,13 @@ fun LedgeApp(voiceService: VoiceService) {
     var isGemmaReady by remember { mutableStateOf(false) }
     var diagnosticInfo by remember { mutableStateOf("") }
 
+    val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
+
     var hasAnkiPermission by remember {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, "com.ichi2.anki.permission.READ_WRITE_PERMISSION") == PackageManager.PERMISSION_GRANTED)
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, modernPermission) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, "com.ichi2.anki.permission.READ_WRITE_PERMISSION") == PackageManager.PERMISSION_GRANTED
+        )
     }
     var hasMicPermission by remember {
         mutableStateOf(ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
@@ -113,9 +118,9 @@ fun LedgeApp(voiceService: VoiceService) {
             Text("Connection Setup", style = MaterialTheme.typography.titleMedium)
             
             Button(onClick = { 
-                ankiLauncher.launch("com.ichi2.anki.permission.READ_WRITE_PERMISSION")
+                ankiLauncher.launch(modernPermission)
             }, modifier = Modifier.fillMaxWidth()) {
-                Text("1. Request Access")
+                Text("1. Request Access (2026)")
             }
             
             Spacer(modifier = Modifier.height(8.dp))
@@ -134,8 +139,8 @@ fun LedgeApp(voiceService: VoiceService) {
 
             Spacer(modifier = Modifier.height(16.dp))
             Text("Troubleshooting:", style = MaterialTheme.typography.bodySmall)
-            Text("1. Open AnkiDroid > Settings > Advanced > Enable API", style = MaterialTheme.typography.bodySmall)
-            Text("2. If auto-request fails, use button below:", style = MaterialTheme.typography.bodySmall)
+            Text("1. AnkiDroid > Settings > Advanced > Enable API", style = MaterialTheme.typography.bodySmall)
+            Text("2. Ensure AnkiDroid storage is migrated to 'New Storage' (v2.17+)", style = MaterialTheme.typography.bodySmall)
             
             Button(onClick = { 
                 val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {

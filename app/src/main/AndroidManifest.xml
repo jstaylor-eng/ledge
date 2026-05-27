@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The modern 2026 permission name -->
+    <uses-permission android:name="com.ichi2.anki.permission.READ_WRITE_DATABASE" />
+    <!-- Keeping the old one just in case of version overlap -->
     <uses-permission android:name="com.ichi2.anki.permission.READ_WRITE_PERMISSION" />
+    
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <queries>
