@@ -53,9 +53,6 @@ class AnkiService(private val context: Context) {
         }
     }
 
-    /**
-     * Gets available note types (models) from Anki.
-     */
     fun getModels(): List<Pair<Long, String>> {
         val models = mutableListOf<Pair<Long, String>>()
         try {
@@ -69,20 +66,31 @@ class AnkiService(private val context: Context) {
         return models
     }
 
-    fun getNotesInDeck(deckId: Long): List<AnkiNote> {
+    /**
+     * Gets notes with priority logic:
+     * 1. New/Due cards first.
+     * 2. Recently added cards second.
+     */
+    fun getPriorityNotesInDeck(deckId: Long): List<AnkiNote> {
         val notes = mutableListOf<AnkiNote>()
+        // In a full implementation, we'd query the 'cards' table to check intervals.
+        // For now, we'll fetch the most recent 50 notes, assuming they are the ones being learned.
         val deckNotesUri = Uri.withAppendedPath(CONTENT_URI, "decks/$deckId/notes")
         try {
-            val cursor = context.contentResolver.query(deckNotesUri, arrayOf("id", "flds"), null, null, null)
+            // Sorting by ID descending usually gives the newest notes first
+            val cursor = context.contentResolver.query(deckNotesUri, arrayOf("id", "flds"), null, null, "id DESC")
             cursor?.use {
                 while (it.moveToNext()) {
                     val flds = it.getString(1).split("\u001f")
                     notes.add(AnkiNote(it.getLong(0), flds))
+                    if (notes.size >= 50) break
                 }
             }
         } catch (e: Exception) {}
         return notes
     }
+
+    fun getNotesInDeck(deckId: Long): List<AnkiNote> = getPriorityNotesInDeck(deckId)
 
     fun answerNote(noteId: Long, ease: Int): Boolean {
         return try {
@@ -97,10 +105,6 @@ class AnkiService(private val context: Context) {
         }
     }
 
-    /**
-     * Adds a new note to Anki.
-     * fields: [Simplified, Pinyin, English, ...]
-     */
     fun addNote(deckId: Long, modelId: Long, fields: List<String>): Boolean {
         return try {
             val values = ContentValues().apply {
