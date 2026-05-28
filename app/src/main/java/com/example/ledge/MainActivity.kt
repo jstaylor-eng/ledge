@@ -37,9 +37,11 @@ import com.example.ledge.data.model.DictionaryEntry
 import com.example.ledge.data.service.AnkiService
 import com.example.ledge.data.service.DictionaryService
 import com.example.ledge.data.service.GemmaService
+import com.example.ledge.data.service.SettingsService
 import com.example.ledge.data.service.VoiceService
 import com.example.ledge.ui.components.WordPopup
 import com.example.ledge.ui.theme.LedgeTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -76,21 +78,26 @@ fun LedgeApp(voiceService: VoiceService) {
     val ankiService = remember { AnkiService(context) }
     val gemmaService = remember { GemmaService(context) }
     val dictionaryService = remember { DictionaryService(context) }
+    val settingsService = remember { SettingsService(context) }
 
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
     var currentDeckNotes by remember { mutableStateOf<List<AnkiNote>>(emptyList()) }
     var noteModels by remember { mutableStateOf<List<Pair<Long, String>>>(emptyList()) }
     
-    var chatInput by remember { mutableStateOf("") }
     var chatHistory by remember { mutableStateOf(listOf<ChatMessage>()) }
     var isGemmaReady by remember { mutableStateOf(false) }
     var diagnosticInfo by remember { mutableStateOf("") }
     var copyProgress by remember { mutableStateOf(-1f) }
-    var showModelSettings by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
 
+    // Persistent Prefs
+    val useWordSpaces by settingsService.useWordSpaces.collectAsState(initial = true)
+
+    // UI state
     var selectedWord by remember { mutableStateOf<String?>(null) }
     var wordEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
+    var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
 
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
 
@@ -104,8 +111,6 @@ fun LedgeApp(voiceService: VoiceService) {
         mutableStateOf(ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
 
-    var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
-    
     LaunchedEffect(voiceService) {
         voiceService.setSpeechListener { isSpeaking ->
             if (!isSpeaking) currentlySpeakingText = null
@@ -114,6 +119,8 @@ fun LedgeApp(voiceService: VoiceService) {
 
     LaunchedEffect(Unit) {
         chatHistory = chatDao.getAllMessages()
+        
+        // Auto-init AI
         val path = gemmaService.getPersistentModelPath()
         if (path != null && !isGemmaReady) {
             diagnosticInfo = "Initializing AI..."
@@ -131,8 +138,20 @@ fun LedgeApp(voiceService: VoiceService) {
         }
 
         if (hasAnkiPermission) {
-            ankiService.getDecks().onSuccess { decks = it }
-            noteModels = ankiService.getModels()
+            ankiService.getDecks().onSuccess { availableDecks ->
+                decks = availableDecks
+                noteModels = ankiService.getModels()
+                
+                // Auto-select last deck
+                val savedDeckId = settingsService.selectedDeckId.first()
+                if (savedDeckId != null) {
+                    val deck = availableDecks.find { it.id == savedDeckId }
+                    if (deck != null) {
+                        selectedDeck = deck
+                        currentDeckNotes = ankiService.getPriorityNotesInDeck(deck.id)
+                    }
+                }
+            }
         }
     }
 
@@ -153,9 +172,11 @@ fun LedgeApp(voiceService: VoiceService) {
                     copyProgress = -1f
                     gemmaService.initialize(path)
                     isGemmaReady = true
+                    showSettings = false
                     diagnosticInfo = "AI Ready!"
                 } catch (e: Exception) {
                     diagnosticInfo = "Model Error: ${e.message}"
+                    copyProgress = -1f
                 }
             }
         }
@@ -173,6 +194,7 @@ fun LedgeApp(voiceService: VoiceService) {
                     diagnosticInfo = "Dictionary Ready!"
                 } catch (e: Exception) {
                     diagnosticInfo = "Dict Error: ${e.message}"
+                    copyProgress = -1f
                 }
             }
         }
@@ -180,6 +202,7 @@ fun LedgeApp(voiceService: VoiceService) {
 
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
 
+    // Dictionary Popup
     selectedWord?.let { word ->
         WordPopup(
             word = word,
@@ -203,7 +226,7 @@ fun LedgeApp(voiceService: VoiceService) {
     Column(modifier = Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(text = "Ledge", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
-            IconButton(onClick = { showModelSettings = !showModelSettings }) {
+            IconButton(onClick = { showSettings = !showSettings }) {
                 Icon(Icons.Default.Settings, contentDescription = "Settings")
             }
         }
@@ -218,19 +241,28 @@ fun LedgeApp(voiceService: VoiceService) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        if (showModelSettings) {
+        if (showSettings) {
             Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Settings", style = MaterialTheme.typography.titleMedium)
+                    Text("App Settings", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Show Word Boundaries (Spaces)", modifier = Modifier.weight(1f))
+                        Switch(checked = useWordSpaces, onCheckedChange = { 
+                            scope.launch { settingsService.setUseWordSpaces(it) }
+                        })
+                    }
+                    
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = { modelPickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Update Gemma Model (.litertlm)")
+                        Text("Update AI Model")
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = { dictPickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Import Full Dictionary (cedict.txt)")
+                        Text("Import CC-CEDICT Dictionary")
                     }
-                    TextButton(onClick = { showModelSettings = false }, modifier = Modifier.align(Alignment.End)) {
+                    TextButton(onClick = { showSettings = false }, modifier = Modifier.align(Alignment.End)) {
                         Text("Close")
                     }
                 }
@@ -243,10 +275,16 @@ fun LedgeApp(voiceService: VoiceService) {
             }
         } else if (isGemmaReady) {
             if (selectedDeck == null) {
-                Text("Select Anki Deck:", style = MaterialTheme.typography.titleMedium)
+                Text("Select Anki Deck Context:", style = MaterialTheme.typography.titleMedium)
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(decks) { deck ->
-                        TextButton(onClick = { selectedDeck = deck; currentDeckNotes = ankiService.getNotesInDeck(deck.id) }, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(onClick = { 
+                            scope.launch {
+                                selectedDeck = deck 
+                                currentDeckNotes = ankiService.getPriorityNotesInDeck(deck.id)
+                                settingsService.setSelectedDeckId(deck.id)
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) {
                             Text(deck.name, modifier = Modifier.padding(8.dp))
                         }
                     }
@@ -260,33 +298,40 @@ fun LedgeApp(voiceService: VoiceService) {
                     }
                 }
 
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Chat Interface
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(chatHistory) { message ->
                         Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                             Text("You: ${message.userText}", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
                             Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), modifier = Modifier.padding(top = 2.dp)) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    val cleanAi = message.aiResponse.replace(Regex("[*#]"), "")
+                                    val rawAi = message.aiResponse.replace(Regex("[*#]"), "")
+                                    val displayAi = if (useWordSpaces) rawAi else rawAi.replace(" ", "")
+                                    
                                     ClickableText(
-                                        text = AnnotatedString(cleanAi),
+                                        text = AnnotatedString(displayAi),
                                         style = TextStyle(color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = MaterialTheme.typography.bodyLarge.fontSize),
                                         onClick = { offset ->
                                             scope.launch {
-                                                val before = cleanAi.substring(0, offset).lastIndexOf(" ")
-                                                val after = cleanAi.indexOf(" ", offset).let { if (it == -1) cleanAi.length else it }
-                                                val wordInRange = cleanAi.substring(before + 1, after).trim().replace(Regex("[，。？！、]"), "")
-                                                if (wordInRange.isNotEmpty()) {
-                                                    val entries = dictionaryService.lookup(wordInRange)
-                                                    if (entries.isNotEmpty()) {
-                                                        selectedWord = wordInRange
-                                                        wordEntries = entries
-                                                        return@launch
+                                                if (useWordSpaces) {
+                                                    val before = displayAi.substring(0, offset).lastIndexOf(" ")
+                                                    val after = displayAi.indexOf(" ", offset).let { if (it == -1) displayAi.length else it }
+                                                    val word = displayAi.substring(before + 1, after).trim().replace(Regex("[，。？！、]"), "")
+                                                    if (word.isNotEmpty()) {
+                                                        val entries = dictionaryService.lookup(word)
+                                                        if (entries.isNotEmpty()) {
+                                                            selectedWord = word
+                                                            wordEntries = entries
+                                                            return@launch
+                                                        }
                                                     }
                                                 }
                                                 for (len in 4 downTo 1) {
-                                                    val testEnd = (offset + len).coerceAtMost(cleanAi.length)
+                                                    val testEnd = (offset + len).coerceAtMost(displayAi.length)
                                                     if (testEnd <= offset) continue
-                                                    val word = cleanAi.substring(offset, testEnd)
+                                                    val word = displayAi.substring(offset, testEnd)
                                                     val entries = dictionaryService.lookup(word)
                                                     if (entries.isNotEmpty()) {
                                                         selectedWord = word
@@ -294,7 +339,7 @@ fun LedgeApp(voiceService: VoiceService) {
                                                         return@launch
                                                     }
                                                 }
-                                                val singleChar = cleanAi[offset].toString()
+                                                val singleChar = displayAi[offset].toString()
                                                 selectedWord = singleChar
                                                 wordEntries = dictionaryService.lookup(singleChar)
                                             }
@@ -303,7 +348,7 @@ fun LedgeApp(voiceService: VoiceService) {
                                     
                                     val usedWords = currentDeckNotes.filter { note -> 
                                         val hanzi = note.fields.firstOrNull() ?: ""
-                                        hanzi.isNotEmpty() && message.aiResponse.contains(hanzi)
+                                        hanzi.isNotEmpty() && rawAi.contains(hanzi)
                                     }.take(6)
 
                                     if (usedWords.isNotEmpty()) {
@@ -344,15 +389,22 @@ fun LedgeApp(voiceService: VoiceService) {
                     }
                 }
 
+                var chatInput by remember { mutableStateOf("") }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                    OutlinedTextField(value = chatInput, onValueChange = { chatInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Speak or type...") })
+                    OutlinedTextField(value = chatInput, onValueChange = { chatInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Talk to AI...") })
                     IconButton(onClick = { if (hasMicPermission) voiceService.startListening { chatInput = it } else micLauncher.launch(android.Manifest.permission.RECORD_AUDIO) }) { Text("🎤") }
                     Button(onClick = {
                         val input = chatInput
                         chatInput = ""
                         scope.launch {
                             val vocab = currentDeckNotes.take(30).joinToString { note -> note.fields.firstOrNull() ?: "" }
-                            val prompt = "You are a Mandarin tutor. Chat naturally. Vocabulary context: $vocab. IMPORTANT: Separate every Chinese word with a space (e.g. 我 是 老师) so the student can identify boundaries. User: $input"
+                            val prompt = """
+                                You are a professional Mandarin tutor. 
+                                IMMERSION MODE: Speak ONLY in Chinese characters (Hanzi). NEVER use English unless the user explicitly asks for a translation.
+                                VOCABULARY: Naturally use some of these words: $vocab.
+                                FORMAT: Separate every Chinese word with a space to help the student identify word boundaries.
+                                User: $input
+                            """.trimIndent()
                             val response = gemmaService.generateResponse(prompt)
                             val newMessage = ChatMessage(userText = input, aiResponse = response, deckName = selectedDeck?.name)
                             chatDao.insertMessage(newMessage); chatHistory = chatHistory + newMessage

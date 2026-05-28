@@ -63,11 +63,14 @@ dependencies {
     // Modern LiteRT-LM SDK for Gemma 4
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
     
-    // Room for Dictionary
+    // Room for Dictionary & History
     val roomVersion = "2.6.1"
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")
     ksp("androidx.room:room-compiler:$roomVersion")
+
+    // DataStore for Preferences
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
