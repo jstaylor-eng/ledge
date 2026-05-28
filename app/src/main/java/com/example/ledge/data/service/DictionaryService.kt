@@ -8,54 +8,61 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.InputStream
 
 class DictionaryService(private val context: Context) {
 
     private val db = AppDatabase.getDatabase(context)
     private val dao = db.dictionaryDao()
 
-    /**
-     * Initializes the dictionary from the assets file if the DB is empty.
-     */
-    suspend fun initializeIfNeeded(onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
-        if (dao.getCount() > 0) return@withContext
+    suspend fun isInitialized(): Boolean = withContext(Dispatchers.IO) {
+        dao.getCount() > 0
+    }
 
+    /**
+     * Initializes from a stream (either Assets or External file).
+     */
+    suspend fun importFromStream(inputStream: InputStream, onProgress: (Float) -> Unit) = withContext(Dispatchers.IO) {
         try {
-            val inputStream = context.assets.open("cedict.txt")
             val reader = BufferedReader(InputStreamReader(inputStream))
             val lines = reader.readLines()
             val total = lines.size
             val entries = mutableListOf<DictionaryEntry>()
 
+            // Clear old data if re-importing
+            db.clearAllTables()
+
             lines.forEachIndexed { index, line ->
-                if (line.startsWith("#")) return@forEachIndexed // Skip comments
+                if (line.startsWith("#")) return@forEachIndexed
 
-                // Format: Traditional Simplified [pinyin] /def1/def2/
-                val parts = line.split(" ")
-                if (parts.size < 3) return@forEachIndexed
+                // Parse CC-CEDICT format: Traditional Simplified [pinyin] /def1/def2/
+                try {
+                    val firstSpace = line.indexOf(" ")
+                    val secondSpace = line.indexOf(" ", firstSpace + 1)
+                    val pinyinStart = line.indexOf("[")
+                    val pinyinEnd = line.indexOf("]")
+                    
+                    if (firstSpace == -1 || secondSpace == -1 || pinyinStart == -1 || pinyinEnd == -1) return@forEachIndexed
 
-                val traditional = parts[0]
-                val simplified = parts[1]
-                
-                val pinyinStart = line.indexOf("[")
-                val pinyinEnd = line.indexOf("]")
-                if (pinyinStart == -1 || pinyinEnd == -1) return@forEachIndexed
-                val pinyin = line.substring(pinyinStart + 1, pinyinEnd)
+                    val traditional = line.substring(0, firstSpace)
+                    val simplified = line.substring(firstSpace + 1, secondSpace)
+                    val pinyin = line.substring(pinyinStart + 1, pinyinEnd)
+                    val definitions = line.substring(pinyinEnd + 1).trim()
 
-                val definitions = line.substring(pinyinEnd + 2).trim()
+                    entries.add(DictionaryEntry(
+                        traditional = traditional,
+                        simplified = simplified,
+                        pinyin = pinyin,
+                        definitions = definitions
+                    ))
 
-                entries.add(DictionaryEntry(
-                    traditional = traditional,
-                    simplified = simplified,
-                    pinyin = pinyin,
-                    definitions = definitions
-                ))
-
-                // Batch insert every 1000 entries
-                if (entries.size >= 1000) {
-                    dao.insertAll(entries)
-                    entries.clear()
-                    onProgress(index.toFloat() / total.toFloat())
+                    if (entries.size >= 2000) {
+                        dao.insertAll(entries)
+                        entries.clear()
+                        onProgress(index.toFloat() / total.toFloat())
+                    }
+                } catch (e: Exception) {
+                    // Skip malformed lines
                 }
             }
             if (entries.isNotEmpty()) {
@@ -63,7 +70,7 @@ class DictionaryService(private val context: Context) {
             }
             onProgress(1.0f)
         } catch (e: Exception) {
-            Log.e("DictionaryService", "Error initializing dictionary: ${e.message}")
+            Log.e("DictionaryService", "Import failed: ${e.message}")
         }
     }
 
