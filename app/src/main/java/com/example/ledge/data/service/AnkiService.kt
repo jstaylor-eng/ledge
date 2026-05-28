@@ -1,5 +1,6 @@
 package com.example.ledge.data.service
 
+import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.Cursor
@@ -9,10 +10,10 @@ import com.example.ledge.data.model.AnkiNote
 
 class AnkiService(private val context: Context) {
 
-    // Updated authority for 2026 AnkiDroid
     private val AUTHORITY = "com.ichi2.anki.flashcards"
     private val CONTENT_URI = Uri.parse("content://$AUTHORITY")
     private val DECKS_URI = Uri.withAppendedPath(CONTENT_URI, "decks")
+    private val SCHEDULE_URI = Uri.withAppendedPath(CONTENT_URI, "schedule")
 
     fun getAnkiPackageName(): String? {
         val packages = listOf("com.ichi2.anki", "com.ichi2.anki.parallel")
@@ -27,17 +28,12 @@ class AnkiService(private val context: Context) {
 
     fun getDecks(): Result<List<AnkiDeck>> {
         val decks = mutableListOf<AnkiDeck>()
-        
         return try {
-            // Updated columns for 2026 API: deck_id, deck_name
             val projection = arrayOf("deck_id", "deck_name")
-            
-            val cursor: Cursor? = context.contentResolver.query(
-                DECKS_URI, projection, null, null, null
-            )
+            val cursor: Cursor? = context.contentResolver.query(DECKS_URI, projection, null, null, null)
 
             if (cursor == null) {
-                return Result.failure(Exception("AnkiDroid Provider ($AUTHORITY) not found or returned null. Check AnkiDroid API settings."))
+                return Result.failure(Exception("AnkiDroid Provider ($AUTHORITY) not found."))
             }
 
             cursor.use {
@@ -50,12 +46,8 @@ class AnkiService(private val context: Context) {
                 }
             }
             
-            if (decks.isEmpty()) {
-                // Try fallback for older API if needed? No, let's stick to flashcards first.
-                Result.failure(Exception("Handshake OK, but no decks found in $AUTHORITY."))
-            } else {
-                Result.success(decks)
-            }
+            if (decks.isEmpty()) Result.failure(Exception("No decks found."))
+            else Result.success(decks)
         } catch (e: SecurityException) {
             Result.failure(Exception("Security Error: Permission denied for $AUTHORITY."))
         } catch (e: Exception) {
@@ -65,17 +57,11 @@ class AnkiService(private val context: Context) {
 
     fun getNotesInDeck(deckId: Long): List<AnkiNote> {
         val notes = mutableListOf<AnkiNote>()
-        // Updated path for 2026: decks/<id>/notes
         val deckNotesUri = Uri.withAppendedPath(CONTENT_URI, "decks/$deckId/notes")
-        
-        // Note: columns might be different here too, usually 'id' and 'flds'
         val projection = arrayOf("id", "flds")
         
         return try {
-            val cursor: Cursor? = context.contentResolver.query(
-                deckNotesUri, projection, null, null, null
-            )
-
+            val cursor: Cursor? = context.contentResolver.query(deckNotesUri, projection, null, null, null)
             cursor?.use {
                 val idIndex = it.getColumnIndex("id")
                 val fldsIndex = it.getColumnIndex("flds")
@@ -89,6 +75,25 @@ class AnkiService(private val context: Context) {
             notes
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    /**
+     * Answers a card for a given note.
+     * ease: 1=Again, 2=Hard, 3=Good, 4=Easy
+     */
+    fun answerNote(noteId: Long, ease: Int): Boolean {
+        return try {
+            val values = ContentValues().apply {
+                put("note_id", noteId)
+                put("card_ord", 0) // Assume first card of the note
+                put("ease", ease)
+            }
+            // In some API versions, we use update() on the schedule URI to "answer"
+            val rows = context.contentResolver.update(SCHEDULE_URI, values, null, null)
+            rows > 0
+        } catch (e: Exception) {
+            false
         }
     }
 }

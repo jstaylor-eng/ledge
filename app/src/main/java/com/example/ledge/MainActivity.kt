@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.ledge.data.model.AnkiDeck
+import com.example.ledge.data.model.AnkiNote
 import com.example.ledge.data.service.AnkiService
 import com.example.ledge.data.service.GemmaService
 import com.example.ledge.data.service.VoiceService
@@ -63,7 +64,8 @@ fun LedgeApp(voiceService: VoiceService) {
 
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
-    var modelPath by remember { mutableStateOf("") }
+    var currentDeckNotes by remember { mutableStateOf<List<AnkiNote>>(emptyList()) }
+    
     var chatInput by remember { mutableStateOf("") }
     var chatHistory by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     var isGemmaReady by remember { mutableStateOf(false) }
@@ -86,14 +88,7 @@ fun LedgeApp(voiceService: VoiceService) {
         hasAnkiPermission = isGranted
         if (isGranted) {
             diagnosticInfo = "Permission Granted! Fetching..."
-            ankiService.getDecks().onSuccess { 
-                decks = it 
-                diagnosticInfo = "Decks loaded: ${it.size}"
-            }.onFailure { 
-                diagnosticInfo = "Fetch error: ${it.message}" 
-            }
-        } else {
-            diagnosticInfo = "Permission Denied by System. Check 'App Info' settings."
+            ankiService.getDecks().onSuccess { decks = it }.onFailure { diagnosticInfo = "Fetch error: ${it.message}" }
         }
     }
     
@@ -102,10 +97,7 @@ fun LedgeApp(voiceService: VoiceService) {
             scope.launch {
                 try {
                     diagnosticInfo = "Copying model to LiteRT storage..."
-                    val path = gemmaService.prepareModelFromUri(it) { progress ->
-                        copyProgress = progress
-                    }
-                    modelPath = path
+                    val path = gemmaService.prepareModelFromUri(it) { progress -> copyProgress = progress }
                     copyProgress = -1f
                     diagnosticInfo = "Initializing LiteRT Engine..."
                     gemmaService.initialize(path)
@@ -125,116 +117,89 @@ fun LedgeApp(voiceService: VoiceService) {
         Text(text = "Ledge: Offline AI Tutor", style = MaterialTheme.typography.headlineMedium)
         
         // Diagnostic Status
-        val ankiPkg = ankiService.getAnkiPackageName()
-        if (ankiPkg == null) {
-            Text("⚠️ AnkiDroid not detected!", color = Color.Red)
-        } else {
-            Text("✅ Found AnkiDroid ($ankiPkg)", color = Color(0xFF388E3C))
-        }
-        
         if (diagnosticInfo.isNotEmpty()) {
             Text("Status: $diagnosticInfo", color = Color.Magenta, style = MaterialTheme.typography.bodySmall)
         }
         
         if (copyProgress >= 0f) {
-            LinearProgressIndicator(
-                progress = copyProgress,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-            )
+            LinearProgressIndicator(progress = copyProgress, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         if (decks.isEmpty()) {
-            Text("Connection Setup", style = MaterialTheme.typography.titleMedium)
-            
-            Button(onClick = { 
-                ankiLauncher.launch(modernPermission)
-            }, modifier = Modifier.fillMaxWidth()) {
-                Text("1. Request Access (2026)")
+            Button(onClick = { ankiLauncher.launch(modernPermission) }, modifier = Modifier.fillMaxWidth()) {
+                Text("1. Connect to Anki")
+            }
+        } else if (!isGemmaReady) {
+            Text("Step 2: Load AI Model", style = MaterialTheme.typography.titleMedium)
+            Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
+                Text("Select .litertlm File")
             }
             
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            Button(onClick = { 
-                ankiService.getDecks().onSuccess {
-                    decks = it
-                    hasAnkiPermission = true
-                    diagnosticInfo = "Success! Decks loaded."
-                }.onFailure {
-                    diagnosticInfo = it.message ?: "Unknown Error"
-                }
-            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
-                Text("2. Check Connection / Force Load")
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Troubleshooting:", style = MaterialTheme.typography.bodySmall)
-            Text("1. AnkiDroid > Settings > Advanced > Enable API", style = MaterialTheme.typography.bodySmall)
-            Text("2. Ensure AnkiDroid storage is migrated to 'New Storage' (v2.17+)", style = MaterialTheme.typography.bodySmall)
-            
-            Button(onClick = { 
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                    data = Uri.fromParts("package", context.packageName, null)
-                }
-                context.startActivity(intent)
-            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) {
-                Text("Open App Settings")
-            }
-        } else {
-            // Setup Section
-            if (!isGemmaReady) {
-                Text("Step 2: Load AI Model", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Pick your .litertlm file (Gemma 4 E2B). It will be copied to the app's internal storage.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Select .litertlm File")
-                }
-                
-                Text(
-                    "Tip: Select 'gemma-4-e2b-it.litertlm' from your Downloads folder.",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Text(text = "Select Anki Deck:")
-                LazyColumn(modifier = Modifier.height(150.dp)) {
-                    items(decks) { deck ->
-                        val isSelected = selectedDeck?.id == deck.id
-                        TextButton(
-                            onClick = { selectedDeck = deck },
-                            colors = if (isSelected) ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.textButtonColors()
-                        ) {
-                            Text(deck.name)
-                        }
+            Text(text = "Step 3: Select Anki Deck Context:")
+            LazyColumn(modifier = Modifier.height(200.dp)) {
+                items(decks) { deck ->
+                    val isSelected = selectedDeck?.id == deck.id
+                    TextButton(
+                        onClick = { 
+                            selectedDeck = deck 
+                            currentDeckNotes = ankiService.getNotesInDeck(deck.id)
+                        },
+                        colors = if (isSelected) ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.textButtonColors()
+                    ) {
+                        Text(deck.name)
                     }
                 }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🤖 Gemma 4 Active | Deck: ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
-                    Button(onClick = { isGemmaReady = false }) { Text("Settings") }
-                }
+            }
+        } else {
+            // Chat & Feedback Interface
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🤖 AI Active | Context: ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
+                Button(onClick = { isGemmaReady = false }) { Text("Settings") }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Chat Interface
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(chatHistory) { (user, ai) ->
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         Text("User: $user", style = MaterialTheme.typography.bodyLarge)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("AI: $ai", modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.primary)
-                            IconButton(onClick = { voiceService.speak(ai) }) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text("AI: $ai", color = MaterialTheme.colorScheme.primary)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { voiceService.speak(ai) }) {
+                                        Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
+                                    }
+                                    
+                                    // Spaced Repetition Feedback Buttons
+                                    Text("Feedback:", style = MaterialTheme.typography.labelSmall)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    listOf("Again" to 1, "Hard" to 2, "Good" to 3, "Easy" to 4).forEach { (label, ease) ->
+                                        TextButton(
+                                            onClick = {
+                                                // Simplified: Answer ALL notes in current context with this rating
+                                                // In a future update, we'd only answer notes MENTIONED in the AI response.
+                                                currentDeckNotes.take(5).forEach { note ->
+                                                    ankiService.answerNote(note.id, ease)
+                                                }
+                                                Toast.makeText(context, "Marked context as $label", Toast.LENGTH_SHORT).show()
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 4.dp)
+                                        ) {
+                                            Text(label, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
                             }
                         }
-                        Divider()
+                        Divider(modifier = Modifier.padding(top = 8.dp))
                     }
                 }
             }
@@ -252,24 +217,18 @@ fun LedgeApp(voiceService: VoiceService) {
                     } else {
                         micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
                     }
-                }) {
-                    Text("🎤")
-                }
+                }) { Text("🎤") }
                 Button(onClick = {
                     val input = chatInput
                     chatInput = ""
                     scope.launch {
-                        val vocab = selectedDeck?.let { 
-                            ankiService.getNotesInDeck(it.id).take(20).joinToString { note -> note.fields.firstOrNull() ?: "" }
-                        } ?: ""
-                        val prompt = "You are a Mandarin tutor. Use these words: $vocab. User: $input"
+                        val vocab = currentDeckNotes.take(20).joinToString { note -> note.fields.firstOrNull() ?: "" }
+                        val prompt = "You are a Mandarin tutor. Incorporate these words: $vocab. User: $input"
                         val response = gemmaService.generateResponse(prompt)
                         chatHistory = chatHistory + (input to response)
                         voiceService.speak(response)
                     }
-                }, enabled = isGemmaReady) {
-                    Text("Send")
-                }
+                }, enabled = isGemmaReady) { Text("Send") }
             }
         }
     }
