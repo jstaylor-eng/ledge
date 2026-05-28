@@ -12,6 +12,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -116,7 +117,6 @@ fun LedgeApp(voiceService: VoiceService) {
     Column(modifier = Modifier.padding(16.dp)) {
         Text(text = "Ledge: Offline AI Tutor", style = MaterialTheme.typography.headlineMedium)
         
-        // Diagnostic Status
         if (diagnosticInfo.isNotEmpty()) {
             Text("Status: $diagnosticInfo", color = Color.Magenta, style = MaterialTheme.typography.bodySmall)
         }
@@ -154,9 +154,8 @@ fun LedgeApp(voiceService: VoiceService) {
                 }
             }
         } else {
-            // Chat & Feedback Interface
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("🤖 AI Active | Context: ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
+                Text("🤖 AI Active | ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
                 Button(onClick = { isGemmaReady = false }) { Text("Settings") }
             }
 
@@ -173,33 +172,51 @@ fun LedgeApp(voiceService: VoiceService) {
                         ) {
                             Column(modifier = Modifier.padding(8.dp)) {
                                 Text("AI: $ai", color = MaterialTheme.colorScheme.primary)
+                                
+                                // Smart Word Chips
+                                val usedWords = currentDeckNotes.filter { note -> 
+                                    val hanzi = note.fields.firstOrNull() ?: ""
+                                    hanzi.isNotEmpty() && ai.contains(hanzi)
+                                }.take(8)
+
+                                if (usedWords.isNotEmpty()) {
+                                    Text("Words used:", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
+                                    LazyRow(modifier = Modifier.padding(top = 2.dp)) {
+                                        items(usedWords) { note ->
+                                            var showRating by remember { mutableStateOf(false) }
+                                            val word = note.fields.firstOrNull() ?: ""
+                                            
+                                            Column {
+                                                SuggestionChip(
+                                                    onClick = { showRating = !showRating },
+                                                    label = { Text(word) },
+                                                    modifier = Modifier.padding(end = 4.dp)
+                                                )
+                                                if (showRating) {
+                                                    Row {
+                                                        listOf("Again" to 1, "Good" to 3).forEach { (label, ease) ->
+                                                            TextButton(onClick = {
+                                                                ankiService.answerNote(note.id, ease)
+                                                                showRating = false
+                                                                Toast.makeText(context, "Rate $word as $label", Toast.LENGTH_SHORT).show()
+                                                            }) {
+                                                                Text(label, style = MaterialTheme.typography.labelSmall)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     IconButton(onClick = { voiceService.speak(ai) }) {
                                         Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
                                     }
-                                    
-                                    // Spaced Repetition Feedback Buttons
-                                    Text("Feedback:", style = MaterialTheme.typography.labelSmall)
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    listOf("Again" to 1, "Hard" to 2, "Good" to 3, "Easy" to 4).forEach { (label, ease) ->
-                                        TextButton(
-                                            onClick = {
-                                                // Simplified: Answer ALL notes in current context with this rating
-                                                // In a future update, we'd only answer notes MENTIONED in the AI response.
-                                                currentDeckNotes.take(5).forEach { note ->
-                                                    ankiService.answerNote(note.id, ease)
-                                                }
-                                                Toast.makeText(context, "Marked context as $label", Toast.LENGTH_SHORT).show()
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 4.dp)
-                                        ) {
-                                            Text(label, style = MaterialTheme.typography.labelSmall)
-                                        }
-                                    }
                                 }
                             }
                         }
-                        Divider(modifier = Modifier.padding(top = 8.dp))
                     }
                 }
             }
@@ -222,8 +239,8 @@ fun LedgeApp(voiceService: VoiceService) {
                     val input = chatInput
                     chatInput = ""
                     scope.launch {
-                        val vocab = currentDeckNotes.take(20).joinToString { note -> note.fields.firstOrNull() ?: "" }
-                        val prompt = "You are a Mandarin tutor. Incorporate these words: $vocab. User: $input"
+                        val vocab = currentDeckNotes.take(30).joinToString { note -> note.fields.firstOrNull() ?: "" }
+                        val prompt = "You are a Mandarin tutor. Chat with the user and try to naturally incorporate some of these vocabulary words: $vocab. Keep your responses concise. User: $input"
                         val response = gemmaService.generateResponse(prompt)
                         chatHistory = chatHistory + (input to response)
                         voiceService.speak(response)
