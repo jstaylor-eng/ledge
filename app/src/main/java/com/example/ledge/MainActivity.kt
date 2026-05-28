@@ -63,11 +63,12 @@ fun LedgeApp(voiceService: VoiceService) {
 
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
-    var modelPath by remember { mutableStateOf("/sdcard/Documents/gemma-2b-it-cpu-int4.bin") }
+    var modelPath by remember { mutableStateOf("") }
     var chatInput by remember { mutableStateOf("") }
     var chatHistory by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     var isGemmaReady by remember { mutableStateOf(false) }
     var diagnosticInfo by remember { mutableStateOf("") }
+    var copyProgress by remember { mutableStateOf(-1f) }
 
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
 
@@ -92,9 +93,32 @@ fun LedgeApp(voiceService: VoiceService) {
                 diagnosticInfo = "Fetch error: ${it.message}" 
             }
         } else {
-            diagnosticInfo = "Permission Denied by System"
+            diagnosticInfo = "Permission Denied by System. Check 'App Info' settings."
         }
     }
+    
+    val filePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            scope.launch {
+                try {
+                    diagnosticInfo = "Copying model to LiteRT storage..."
+                    val path = gemmaService.prepareModelFromUri(it) { progress ->
+                        copyProgress = progress
+                    }
+                    modelPath = path
+                    copyProgress = -1f
+                    diagnosticInfo = "Initializing LiteRT Engine..."
+                    gemmaService.initialize(path)
+                    isGemmaReady = true
+                    diagnosticInfo = "AI Ready! (Gemma 4)"
+                } catch (e: Exception) {
+                    diagnosticInfo = "Model Error: ${e.message}"
+                    copyProgress = -1f
+                }
+            }
+        }
+    }
+
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
 
     Column(modifier = Modifier.padding(16.dp)) {
@@ -110,6 +134,13 @@ fun LedgeApp(voiceService: VoiceService) {
         
         if (diagnosticInfo.isNotEmpty()) {
             Text("Status: $diagnosticInfo", color = Color.Magenta, style = MaterialTheme.typography.bodySmall)
+        }
+        
+        if (copyProgress >= 0f) {
+            LinearProgressIndicator(
+                progress = copyProgress,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -153,27 +184,25 @@ fun LedgeApp(voiceService: VoiceService) {
         } else {
             // Setup Section
             if (!isGemmaReady) {
-                Text("Step 2: Initialize AI", style = MaterialTheme.typography.titleMedium)
-                OutlinedTextField(
-                    value = modelPath,
-                    onValueChange = { modelPath = it },
-                    label = { Text("Gemma Model Path") },
-                    modifier = Modifier.fillMaxWidth()
+                Text("Step 2: Load AI Model", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Pick your .litertlm file (Gemma 4 E2B). It will be copied to the app's internal storage.",
+                    style = MaterialTheme.typography.bodySmall
                 )
-                Button(onClick = {
-                    try {
-                        gemmaService.initialize(modelPath)
-                        isGemmaReady = true
-                    } catch (e: Exception) {
-                        Toast.makeText(context, e.message, Toast.LENGTH_LONG).show()
-                    }
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text("Initialize Gemma")
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Select .litertlm File")
                 }
                 
-                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Tip: Select 'gemma-4-e2b-it.litertlm' from your Downloads folder.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
                 
-                Text(text = "Select Deck Context:")
+                Text(text = "Select Anki Deck:")
                 LazyColumn(modifier = Modifier.height(150.dp)) {
                     items(decks) { deck ->
                         val isSelected = selectedDeck?.id == deck.id
@@ -187,7 +216,7 @@ fun LedgeApp(voiceService: VoiceService) {
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("🤖 AI Active | Deck: ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
+                    Text("🤖 Gemma 4 Active | Deck: ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
                     Button(onClick = { isGemmaReady = false }) { Text("Settings") }
                 }
             }
@@ -215,7 +244,7 @@ fun LedgeApp(voiceService: VoiceService) {
                     value = chatInput,
                     onValueChange = { chatInput = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Talk to tutor...") }
+                    placeholder = { Text("Talk to Gemma 4...") }
                 )
                 IconButton(onClick = {
                     if (hasMicPermission) {
