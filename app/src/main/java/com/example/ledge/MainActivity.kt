@@ -80,6 +80,7 @@ fun LedgeApp(voiceService: VoiceService) {
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
     var currentDeckNotes by remember { mutableStateOf<List<AnkiNote>>(emptyList()) }
+    var noteModels by remember { mutableStateOf<List<Pair<Long, String>>>(emptyList()) }
     
     var chatInput by remember { mutableStateOf("") }
     var chatHistory by remember { mutableStateOf(listOf<ChatMessage>()) }
@@ -131,12 +132,16 @@ fun LedgeApp(voiceService: VoiceService) {
 
         if (hasAnkiPermission) {
             ankiService.getDecks().onSuccess { decks = it }
+            noteModels = ankiService.getModels()
         }
     }
 
     val ankiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         hasAnkiPermission = isGranted
-        if (isGranted) ankiService.getDecks().onSuccess { decks = it }
+        if (isGranted) {
+            ankiService.getDecks().onSuccess { decks = it }
+            noteModels = ankiService.getModels()
+        }
     }
     
     val modelPickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -168,7 +173,6 @@ fun LedgeApp(voiceService: VoiceService) {
                     diagnosticInfo = "Dictionary Ready!"
                 } catch (e: Exception) {
                     diagnosticInfo = "Dict Error: ${e.message}"
-                    copyProgress = -1f
                 }
             }
         }
@@ -177,7 +181,23 @@ fun LedgeApp(voiceService: VoiceService) {
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
 
     selectedWord?.let { word ->
-        WordPopup(word = word, entries = wordEntries, onDismiss = { selectedWord = null })
+        WordPopup(
+            word = word,
+            entries = wordEntries,
+            onAddToAnki = { entry ->
+                scope.launch {
+                    val deck = selectedDeck ?: decks.firstOrNull()
+                    val model = noteModels.find { it.second.contains("Basic", true) } ?: noteModels.firstOrNull()
+                    if (deck != null && model != null) {
+                        val fields = listOf(entry.simplified, entry.pinyin, entry.definitions)
+                        if (ankiService.addNote(deck.id, model.first, fields)) {
+                            Toast.makeText(context, "Added to Anki!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            },
+            onDismiss = { selectedWord = null }
+        )
     }
 
     Column(modifier = Modifier.padding(16.dp)) {
