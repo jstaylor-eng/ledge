@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LedgeApp(voiceService: VoiceService) {
     val context = LocalContext.current
@@ -72,6 +74,7 @@ fun LedgeApp(voiceService: VoiceService) {
     var isGemmaReady by remember { mutableStateOf(false) }
     var diagnosticInfo by remember { mutableStateOf("") }
     var copyProgress by remember { mutableStateOf(-1f) }
+    var showModelSettings by remember { mutableStateOf(false) }
 
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
 
@@ -85,10 +88,29 @@ fun LedgeApp(voiceService: VoiceService) {
         mutableStateOf(ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
 
+    // Auto-load model on startup if it exists
+    LaunchedEffect(Unit) {
+        val path = gemmaService.getPersistentModelPath()
+        if (path != null && !isGemmaReady) {
+            diagnosticInfo = "Found saved model. Initializing..."
+            try {
+                gemmaService.initialize(path)
+                isGemmaReady = true
+                diagnosticInfo = "AI Ready!"
+            } catch (e: Exception) {
+                diagnosticInfo = "Auto-init failed: ${e.message}"
+            }
+        }
+        
+        if (hasAnkiPermission) {
+            ankiService.getDecks().onSuccess { decks = it }
+        }
+    }
+
     val ankiLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         hasAnkiPermission = isGranted
         if (isGranted) {
-            diagnosticInfo = "Permission Granted! Fetching..."
+            diagnosticInfo = "Permission Granted!"
             ankiService.getDecks().onSuccess { decks = it }.onFailure { diagnosticInfo = "Fetch error: ${it.message}" }
         }
     }
@@ -97,13 +119,14 @@ fun LedgeApp(voiceService: VoiceService) {
         uri?.let {
             scope.launch {
                 try {
-                    diagnosticInfo = "Copying model to LiteRT storage..."
+                    diagnosticInfo = "Copying model to internal storage..."
                     val path = gemmaService.prepareModelFromUri(it) { progress -> copyProgress = progress }
                     copyProgress = -1f
                     diagnosticInfo = "Initializing LiteRT Engine..."
                     gemmaService.initialize(path)
                     isGemmaReady = true
-                    diagnosticInfo = "AI Ready! (Gemma 4)"
+                    showModelSettings = false
+                    diagnosticInfo = "AI Ready!"
                 } catch (e: Exception) {
                     diagnosticInfo = "Model Error: ${e.message}"
                     copyProgress = -1f
@@ -115,7 +138,12 @@ fun LedgeApp(voiceService: VoiceService) {
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
 
     Column(modifier = Modifier.padding(16.dp)) {
-        Text(text = "Ledge: Offline AI Tutor", style = MaterialTheme.typography.headlineMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "Ledge", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
+            IconButton(onClick = { showModelSettings = !showModelSettings }) {
+                Icon(Icons.Default.Settings, contentDescription = "Settings")
+            }
+        }
         
         if (diagnosticInfo.isNotEmpty()) {
             Text("Status: $diagnosticInfo", color = Color.Magenta, style = MaterialTheme.typography.bodySmall)
@@ -127,80 +155,93 @@ fun LedgeApp(voiceService: VoiceService) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        if (decks.isEmpty()) {
-            Button(onClick = { ankiLauncher.launch(modernPermission) }, modifier = Modifier.fillMaxWidth()) {
-                Text("1. Connect to Anki")
-            }
-        } else if (!isGemmaReady) {
-            Text("Step 2: Load AI Model", style = MaterialTheme.typography.titleMedium)
-            Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
-                Text("Select .litertlm File")
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(text = "Step 3: Select Anki Deck Context:")
-            LazyColumn(modifier = Modifier.height(200.dp)) {
-                items(decks) { deck ->
-                    val isSelected = selectedDeck?.id == deck.id
-                    TextButton(
-                        onClick = { 
-                            selectedDeck = deck 
-                            currentDeckNotes = ankiService.getNotesInDeck(deck.id)
-                        },
-                        colors = if (isSelected) ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else ButtonDefaults.textButtonColors()
-                    ) {
-                        Text(deck.name)
+        if (showModelSettings || !isGemmaReady) {
+            Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("AI Engine Settings", style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { filePickerLauncher.launch("*/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (isGemmaReady) "Change Model (.litertlm)" else "Select Model (.litertlm)")
+                    }
+                    if (isGemmaReady) {
+                        TextButton(onClick = { showModelSettings = false }, modifier = Modifier.align(Alignment.End)) {
+                            Text("Close")
+                        }
                     }
                 }
             }
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("🤖 AI Active | ${selectedDeck?.name ?: "None"}", modifier = Modifier.weight(1f))
-                Button(onClick = { isGemmaReady = false }) { Text("Settings") }
+        }
+
+        if (decks.isEmpty()) {
+            Button(onClick = { ankiLauncher.launch(modernPermission) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Connect to AnkiDroid")
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Chat Interface
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(chatHistory) { (user, ai) ->
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                        Text("User: $user", style = MaterialTheme.typography.bodyLarge)
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            modifier = Modifier.padding(top = 4.dp)
+        } else if (isGemmaReady) {
+            // Main Chat Experience
+            if (selectedDeck == null) {
+                Text("Select Anki Deck Context:", style = MaterialTheme.typography.titleMedium)
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(decks) { deck ->
+                        TextButton(
+                            onClick = { 
+                                selectedDeck = deck 
+                                currentDeckNotes = ankiService.getNotesInDeck(deck.id)
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(8.dp)) {
-                                Text("AI: $ai", color = MaterialTheme.colorScheme.primary)
-                                
-                                // Smart Word Chips
-                                val usedWords = currentDeckNotes.filter { note -> 
-                                    val hanzi = note.fields.firstOrNull() ?: ""
-                                    hanzi.isNotEmpty() && ai.contains(hanzi)
-                                }.take(8)
+                            Text(deck.name, modifier = Modifier.padding(8.dp))
+                        }
+                    }
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("📖 ${selectedDeck?.name}", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { selectedDeck = null }) { Text("Switch Deck") }
+                }
 
-                                if (usedWords.isNotEmpty()) {
-                                    Text("Words used:", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
-                                    LazyRow(modifier = Modifier.padding(top = 2.dp)) {
-                                        items(usedWords) { note ->
-                                            var showRating by remember { mutableStateOf(false) }
-                                            val word = note.fields.firstOrNull() ?: ""
-                                            
-                                            Column {
-                                                SuggestionChip(
-                                                    onClick = { showRating = !showRating },
-                                                    label = { Text(word) },
-                                                    modifier = Modifier.padding(end = 4.dp)
-                                                )
-                                                if (showRating) {
-                                                    Row {
-                                                        listOf("Again" to 1, "Good" to 3).forEach { (label, ease) ->
-                                                            TextButton(onClick = {
-                                                                ankiService.answerNote(note.id, ease)
-                                                                showRating = false
-                                                                Toast.makeText(context, "Rate $word as $label", Toast.LENGTH_SHORT).show()
-                                                            }) {
-                                                                Text(label, style = MaterialTheme.typography.labelSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Chat Interface
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(chatHistory) { (user, ai) ->
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                            Text("You: $user", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                modifier = Modifier.padding(top = 2.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    val cleanAi = ai.replace(Regex("[*#]"), "")
+                                    Text(text = cleanAi, style = MaterialTheme.typography.bodyLarge)
+                                    
+                                    val usedWords = currentDeckNotes.filter { note -> 
+                                        val hanzi = note.fields.firstOrNull() ?: ""
+                                        hanzi.isNotEmpty() && ai.contains(hanzi)
+                                    }.take(6)
+
+                                    if (usedWords.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        LazyRow {
+                                            items(usedWords) { note ->
+                                                var showRating by remember { mutableStateOf(false) }
+                                                val word = note.fields.firstOrNull() ?: ""
+                                                
+                                                Column(modifier = Modifier.padding(end = 4.dp)) {
+                                                    InputChip(
+                                                        selected = showRating,
+                                                        onClick = { showRating = !showRating },
+                                                        label = { Text(word) }
+                                                    )
+                                                    if (showRating) {
+                                                        Row {
+                                                            listOf("Again" to 1, "Good" to 3).forEach { (label, ease) ->
+                                                                TextButton(onClick = {
+                                                                    ankiService.answerNote(note.id, ease)
+                                                                    showRating = false
+                                                                    Toast.makeText(context, "Rated $word", Toast.LENGTH_SHORT).show()
+                                                                }) {
+                                                                    Text(label, style = MaterialTheme.typography.labelSmall)
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -208,44 +249,44 @@ fun LedgeApp(voiceService: VoiceService) {
                                             }
                                         }
                                     }
-                                }
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = { voiceService.speak(ai) }) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                        IconButton(onClick = { voiceService.speak(ai) }) {
+                                            Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = chatInput,
-                    onValueChange = { chatInput = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("Talk to Gemma 4...") }
-                )
-                IconButton(onClick = {
-                    if (hasMicPermission) {
-                        voiceService.startListening { chatInput = it }
-                    } else {
-                        micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                    }
-                }) { Text("🎤") }
-                Button(onClick = {
-                    val input = chatInput
-                    chatInput = ""
-                    scope.launch {
-                        val vocab = currentDeckNotes.take(30).joinToString { note -> note.fields.firstOrNull() ?: "" }
-                        val prompt = "You are a Mandarin tutor. Chat with the user and try to naturally incorporate some of these vocabulary words: $vocab. Keep your responses concise. User: $input"
-                        val response = gemmaService.generateResponse(prompt)
-                        chatHistory = chatHistory + (input to response)
-                        voiceService.speak(response)
-                    }
-                }, enabled = isGemmaReady) { Text("Send") }
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+                    OutlinedTextField(
+                        value = chatInput,
+                        onValueChange = { chatInput = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("Speak or type...") }
+                    )
+                    IconButton(onClick = {
+                        if (hasMicPermission) {
+                            voiceService.startListening { chatInput = it }
+                        } else {
+                            micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                        }
+                    }) { Text("🎤") }
+                    Button(onClick = {
+                        val input = chatInput
+                        chatInput = ""
+                        scope.launch {
+                            val vocab = currentDeckNotes.take(30).joinToString { note -> note.fields.firstOrNull() ?: "" }
+                            val prompt = "You are a Mandarin tutor. Chat naturally. Vocabulary context: $vocab. Use Hanzi and keep responses short. User: $input"
+                            val response = gemmaService.generateResponse(prompt)
+                            chatHistory = chatHistory + (input to response)
+                            voiceService.speak(response)
+                        }
+                    }, enabled = isGemmaReady) { Text("Send") }
+                }
             }
         }
     }

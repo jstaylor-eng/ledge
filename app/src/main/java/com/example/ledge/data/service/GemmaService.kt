@@ -12,13 +12,22 @@ import java.io.FileOutputStream
 class GemmaService(private val context: Context) {
 
     private var engine: Engine? = null
+    private val MODEL_FILENAME = "gemma_model.litertlm"
+
+    /**
+     * Checks if the model is already in internal storage.
+     */
+    fun getPersistentModelPath(): String? {
+        val file = File(context.filesDir, MODEL_FILENAME)
+        return if (file.exists()) file.absolutePath else null
+    }
 
     /**
      * Copies a model from a Uri (like from a File Picker) to internal storage
      * so that the LiteRT library can read it.
      */
     suspend fun prepareModelFromUri(uri: Uri, onProgress: (Float) -> Unit): String = withContext(Dispatchers.IO) {
-        val destinationFile = File(context.filesDir, "gemma_model.litertlm")
+        val destinationFile = File(context.filesDir, MODEL_FILENAME)
         
         context.contentResolver.openInputStream(uri)?.use { input ->
             FileOutputStream(destinationFile).use { output ->
@@ -60,8 +69,6 @@ class GemmaService(private val context: Context) {
         try {
             val currentEngine = engine ?: return@withContext "AI not initialized"
             
-            // Create a new conversation and send message
-            // We use .last() to get the final response from the flow
             var finalResult = ""
             currentEngine.createConversation().use { conversation ->
                 conversation.sendMessageAsync(prompt).collect { partial ->

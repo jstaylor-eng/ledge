@@ -29,9 +29,27 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
         }
     }
 
+    /**
+     * Sanitizes text by removing markdown characters and non-Chinese text 
+     * to prevent TTS from reading out formatting or metadata.
+     */
+    private fun sanitizeText(text: String): String {
+        // 1. Remove Markdown special characters (*, #, _, [, ], etc)
+        var clean = text.replace(Regex("[*#_>\\[\\]]"), " ")
+        
+        // 2. Extract only Chinese characters and standard punctuation
+        // This Regex matches CJK Unified Ideographs and common punctuation
+        val chineseRegex = Regex("[\\u4e00-\\u9fa5，。？！、：；“”‘’（）《》]")
+        val matches = chineseRegex.findAll(clean)
+        val result = matches.joinToString("") { it.value }
+        
+        return if (result.isBlank()) clean else result
+    }
+
     fun speak(text: String) {
         if (isTtsReady) {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+            val speechText = sanitizeText(text)
+            tts?.speak(speechText, TextToSpeech.QUEUE_FLUSH, null, null)
         }
     }
 
