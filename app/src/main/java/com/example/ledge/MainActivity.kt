@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -83,6 +84,17 @@ fun LedgeApp(voiceService: VoiceService) {
     var diagnosticInfo by remember { mutableStateOf("") }
     var copyProgress by remember { mutableStateOf(-1f) }
     var showModelSettings by remember { mutableStateOf(false) }
+
+    // TTS state
+    var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
+    
+    LaunchedEffect(voiceService) {
+        voiceService.setSpeechListener { isSpeaking ->
+            if (!isSpeaking) {
+                currentlySpeakingText = null
+            }
+        }
+    }
 
     // Dictionary Popup State
     var selectedWord by remember { mutableStateOf<String?>(null) }
@@ -314,8 +326,21 @@ fun LedgeApp(voiceService: VoiceService) {
                                     }
 
                                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                        IconButton(onClick = { voiceService.speak(ai) }) {
-                                            Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
+                                        val isSpeakingThis = currentlySpeakingText == ai
+                                        IconButton(onClick = { 
+                                            if (isSpeakingThis) {
+                                                voiceService.stop()
+                                                currentlySpeakingText = null
+                                            } else {
+                                                currentlySpeakingText = ai
+                                                voiceService.speak(ai)
+                                            }
+                                        }) {
+                                            if (isSpeakingThis) {
+                                                Text("⏹️") // Stop Emoji
+                                            } else {
+                                                Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
+                                            }
                                         }
                                     }
                                 }
@@ -346,6 +371,7 @@ fun LedgeApp(voiceService: VoiceService) {
                             val prompt = "You are a Mandarin tutor. Chat naturally. Vocabulary context: $vocab. Use Hanzi and keep responses short. User: $input"
                             val response = gemmaService.generateResponse(prompt)
                             chatHistory = chatHistory + (input to response)
+                            currentlySpeakingText = response
                             voiceService.speak(response)
                         }
                     }, enabled = isGemmaReady) { Text("Send") }
