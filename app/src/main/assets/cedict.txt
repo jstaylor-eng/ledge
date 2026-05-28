@@ -1,0 +1,7 @@
+# CC-CEDICT minimal bootstrap
+你好 你好 [ni3 hao3] /Hello!/Hi!/
+我是 我是 [wo3 shi4] /I am/
+学习 学习 [xue2 xi2] /to learn/to study/
+老师 老师 [lao3 shi1] /teacher/CL:個|个[ge4],位[wei4]/
+学生 学生 [xue2 sheng5] /student/schoolchild/
+中国 中国 [Zhong1 guo2] /China/

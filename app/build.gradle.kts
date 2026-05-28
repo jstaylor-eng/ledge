@@ -1,8 +1,8 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    // Matching Kotlin version
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.10"
+    id("com.google.devtools.ksp") version "2.1.10-1.0.29"
 }
 
 android {
@@ -37,7 +37,6 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
-        // Force suppress metadata check if needed
         freeCompilerArgs += listOf("-Xskip-metadata-version-check")
     }
     buildFeatures {
@@ -64,6 +63,12 @@ dependencies {
     // Modern LiteRT-LM SDK for Gemma 4
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.11.0")
     
+    // Room for Dictionary
+    val roomVersion = "2.6.1"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")

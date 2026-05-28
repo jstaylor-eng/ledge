@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
@@ -23,13 +24,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.ledge.data.model.AnkiDeck
 import com.example.ledge.data.model.AnkiNote
+import com.example.ledge.data.model.DictionaryEntry
 import com.example.ledge.data.service.AnkiService
+import com.example.ledge.data.service.DictionaryService
 import com.example.ledge.data.service.GemmaService
 import com.example.ledge.data.service.VoiceService
+import com.example.ledge.ui.components.WordPopup
 import com.example.ledge.ui.theme.LedgeTheme
 import kotlinx.coroutines.launch
 
@@ -64,6 +70,7 @@ fun LedgeApp(voiceService: VoiceService) {
     val scope = rememberCoroutineScope()
     val ankiService = remember { AnkiService(context) }
     val gemmaService = remember { GemmaService(context) }
+    val dictionaryService = remember { DictionaryService(context) }
 
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
@@ -72,9 +79,14 @@ fun LedgeApp(voiceService: VoiceService) {
     var chatInput by remember { mutableStateOf("") }
     var chatHistory by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     var isGemmaReady by remember { mutableStateOf(false) }
+    var isDictionaryReady by remember { mutableStateOf(false) }
     var diagnosticInfo by remember { mutableStateOf("") }
     var copyProgress by remember { mutableStateOf(-1f) }
     var showModelSettings by remember { mutableStateOf(false) }
+
+    // Dictionary Popup State
+    var selectedWord by remember { mutableStateOf<String?>(null) }
+    var wordEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
 
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
 
@@ -88,20 +100,30 @@ fun LedgeApp(voiceService: VoiceService) {
         mutableStateOf(ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
     }
 
-    // Auto-load model on startup if it exists
+    // Auto-load & Init
     LaunchedEffect(Unit) {
+        // Init AI
         val path = gemmaService.getPersistentModelPath()
         if (path != null && !isGemmaReady) {
-            diagnosticInfo = "Found saved model. Initializing..."
+            diagnosticInfo = "Found AI model. Initializing..."
             try {
                 gemmaService.initialize(path)
                 isGemmaReady = true
                 diagnosticInfo = "AI Ready!"
             } catch (e: Exception) {
-                diagnosticInfo = "Auto-init failed: ${e.message}"
+                diagnosticInfo = "AI error: ${e.message}"
             }
         }
         
+        // Init Dictionary
+        diagnosticInfo = "Loading dictionary..."
+        dictionaryService.initializeIfNeeded { progress ->
+            copyProgress = progress
+        }
+        isDictionaryReady = true
+        copyProgress = -1f
+        diagnosticInfo = if (isGemmaReady) "Ready!" else "AI Model needed."
+
         if (hasAnkiPermission) {
             ankiService.getDecks().onSuccess { decks = it }
         }
@@ -136,6 +158,15 @@ fun LedgeApp(voiceService: VoiceService) {
     }
 
     val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
+
+    // Dictionary Popup
+    selectedWord?.let { word ->
+        WordPopup(
+            word = word,
+            entries = wordEntries,
+            onDismiss = { selectedWord = null }
+        )
+    }
 
     Column(modifier = Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -212,7 +243,39 @@ fun LedgeApp(voiceService: VoiceService) {
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
                                     val cleanAi = ai.replace(Regex("[*#]"), "")
-                                    Text(text = cleanAi, style = MaterialTheme.typography.bodyLarge)
+                                    
+                                    // Interactive Text
+                                    ClickableText(
+                                        text = AnnotatedString(cleanAi),
+                                        style = TextStyle(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = MaterialTheme.typography.bodyLarge.fontSize
+                                        ),
+                                        onClick = { offset ->
+                                            scope.launch {
+                                                // Longest matching word algorithm
+                                                var found = false
+                                                for (len in 4 downTo 1) {
+                                                    val testEnd = (offset + len).coerceAtMost(cleanAi.length)
+                                                    if (testEnd <= offset) continue
+                                                    
+                                                    val word = cleanAi.substring(offset, testEnd)
+                                                    val entries = dictionaryService.lookup(word)
+                                                    if (entries.isNotEmpty()) {
+                                                        selectedWord = word
+                                                        wordEntries = entries
+                                                        found = true
+                                                        break
+                                                    }
+                                                }
+                                                if (!found) {
+                                                    val char = cleanAi[offset].toString()
+                                                    selectedWord = char
+                                                    wordEntries = dictionaryService.lookup(char)
+                                                }
+                                            }
+                                        }
+                                    )
                                     
                                     val usedWords = currentDeckNotes.filter { note -> 
                                         val hanzi = note.fields.firstOrNull() ?: ""
