@@ -13,24 +13,21 @@ class SettingsService(private val context: Context) {
 
     private val USE_WORD_SPACES = booleanPreferencesKey("use_word_spaces")
     private val SELECTED_DECK_ID = longPreferencesKey("selected_deck_id")
+    private val IS_DARK_MODE = booleanPreferencesKey("is_dark_mode")
 
-    val useWordSpaces: Flow<Boolean> = context.dataStore.data.map { preferences ->
-        preferences[USE_WORD_SPACES] ?: true
-    }
-
-    val selectedDeckId: Flow<Long?> = context.dataStore.data.map { preferences ->
-        preferences[SELECTED_DECK_ID]
-    }
+    val useWordSpaces: Flow<Boolean> = context.dataStore.data.map { it[USE_WORD_SPACES] ?: true }
+    val selectedDeckId: Flow<Long?> = context.dataStore.data.map { it[SELECTED_DECK_ID] }
+    val isDarkMode: Flow<Boolean?> = context.dataStore.data.map { it[IS_DARK_MODE] }
 
     suspend fun setUseWordSpaces(value: Boolean) {
-        context.dataStore.edit { settings ->
-            settings[USE_WORD_SPACES] = value
-        }
+        context.dataStore.edit { it[USE_WORD_SPACES] = value }
     }
 
     suspend fun setSelectedDeckId(id: Long) {
-        context.dataStore.edit { settings ->
-            settings[SELECTED_DECK_ID] = id
-        }
+        context.dataStore.edit { it[SELECTED_DECK_ID] = id }
+    }
+
+    suspend fun setDarkMode(value: Boolean) {
+        context.dataStore.edit { it[IS_DARK_MODE] = value }
     }
 }
