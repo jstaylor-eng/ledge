@@ -20,9 +20,12 @@ fun DuChineseText(
     text: String,
     vocabMap: Map<String, WordStatus>,
     ankiNotes: List<AnkiNote>,
+    showAllPinyin: Boolean,
     onWordClick: (String, AnkiNote?) -> Unit
 ) {
-    val words = text.split(" ").filter { it.isNotBlank() }
+    // Only parse the Hanzi part (AI responds with Hanzi | English)
+    val hanziText = text.split("|").firstOrNull() ?: text
+    val words = hanziText.split(" ").filter { it.isNotBlank() }
 
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -35,6 +38,7 @@ fun DuChineseText(
             WordItem(
                 word = word,
                 status = status,
+                showAllPinyin = showAllPinyin,
                 pinyin = matchingNote?.fields?.getOrNull(1),
                 onClick = { onWordClick(word, matchingNote) }
             )
@@ -46,6 +50,7 @@ fun DuChineseText(
 fun WordItem(
     word: String,
     status: WordStatus,
+    showAllPinyin: Boolean,
     pinyin: String?,
     onClick: () -> Unit
 ) {
@@ -55,8 +60,8 @@ fun WordItem(
         else -> Color.Transparent
     }
 
-    // Only show Pinyin automatically for NEW words
-    val shouldShowPinyin = (status == WordStatus.NEW)
+    // Show pinyin if it's a NEW word OR if 'Show All' is toggled ON
+    val shouldShowPinyin = (status == WordStatus.NEW || showAllPinyin)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,

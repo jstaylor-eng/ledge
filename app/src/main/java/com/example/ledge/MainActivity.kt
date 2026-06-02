@@ -65,7 +65,6 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     val ankiService = remember { AnkiService(context) }
     val gemmaService = remember { GemmaService(context) }
     val dictionaryService = remember { DictionaryService(context) }
-    val settingsServiceInstance = remember { settingsService }
 
     // Global State
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
@@ -90,6 +89,8 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     var pendingTranscription by remember { mutableStateOf<String?>(null) }
 
     val useWordSpaces by settingsService.useWordSpaces.collectAsState(initial = true)
+    val showAllPinyin by settingsService.showAllPinyin.collectAsState(initial = false)
+    
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
     var hasAnkiPermission by remember {
         mutableStateOf(
@@ -172,10 +173,11 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
         
         composable("settings") {
             SettingsView(
-                isDarkMode = isDarkMode, useWordSpaces = useWordSpaces, diagnosticInfo = diagnosticInfo,
+                isDarkMode = isDarkMode, useWordSpaces = useWordSpaces, showAllPinyin = showAllPinyin, diagnosticInfo = diagnosticInfo,
                 onBack = { navController.popBackStack() },
                 onToggleTheme = { scope.launch { settingsService.setDarkMode(it) } },
                 onToggleSpaces = { scope.launch { settingsService.setUseWordSpaces(it) } },
+                onTogglePinyin = { scope.launch { settingsService.setShowAllPinyin(it) } },
                 onImportModel = { modelPicker.launch("*/*") },
                 onImportDict = { dictPicker.launch("*/*") }
             )
@@ -185,6 +187,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
             ChatView(
                 chatHistory = chatHistory, sessionVocab = sessionVocab, currentlySpeakingText = currentlySpeakingText,
                 isMicPermissionGranted = hasMicPermission,
+                showAllPinyin = showAllPinyin,
                 transcription = pendingTranscription,
                 onBack = { navController.popBackStack() },
                 onSendMessage = { input ->
@@ -209,6 +212,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                             2. Intro: If I do well, naturally use a new word: $newWords.
                             3. Simplicity: If I'm stuck, explain using these words I know: $knownWords.
                             IMMERSION: Speak ONLY in Chinese characters. Use spaces between words. 
+                            FORMAT: Provide your response as 'Hanzi | English Translation'.
                             User: $input
                         """.trimIndent()
                         

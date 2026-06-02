@@ -15,10 +15,12 @@ import androidx.compose.ui.unit.dp
 fun SettingsView(
     isDarkMode: Boolean,
     useWordSpaces: Boolean,
+    showAllPinyin: Boolean,
     diagnosticInfo: String,
     onBack: () -> Unit,
     onToggleTheme: (Boolean) -> Unit,
     onToggleSpaces: (Boolean) -> Unit,
+    onTogglePinyin: (Boolean) -> Unit,
     onImportModel: () -> Unit,
     onImportDict: () -> Unit
 ) {
@@ -39,34 +41,30 @@ fun SettingsView(
                 Text("Appearance", style = MaterialTheme.typography.titleMedium)
                 ListItem(
                     headlineContent = { Text("Dark Mode") },
-                    trailingContent = {
-                        Switch(checked = isDarkMode, onCheckedChange = onToggleTheme)
-                    }
+                    trailingContent = { Switch(checked = isDarkMode, onCheckedChange = onToggleTheme) }
                 )
                 ListItem(
                     headlineContent = { Text("Show Word Spaces") },
-                    supportingContent = { Text("Helps with word boundaries and lookups") },
-                    trailingContent = {
-                        Switch(checked = useWordSpaces, onCheckedChange = onToggleSpaces)
-                    }
+                    supportingContent = { Text("Helps with word boundaries") },
+                    trailingContent = { Switch(checked = useWordSpaces, onCheckedChange = onToggleSpaces) }
+                )
+                ListItem(
+                    headlineContent = { Text("Always Show Pinyin") },
+                    supportingContent = { Text("Show Pinyin for all words, not just new ones") },
+                    trailingContent = { Switch(checked = showAllPinyin, onCheckedChange = onTogglePinyin) }
                 )
                 Divider()
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                Text("AI & Content", style = MaterialTheme.typography.titleMedium)
+                Text("AI & Dictionary", style = MaterialTheme.typography.titleMedium)
                 ListItem(
                     headlineContent = { Text("AI Model") },
-                    supportingContent = { Text("Select or update Gemma .litertlm file") },
-                    trailingContent = {
-                        Button(onClick = onImportModel) { Text("Update") }
-                    }
+                    trailingContent = { Button(onClick = onImportModel) { Text("Update") } }
                 )
                 ListItem(
-                    headlineContent = { Text("Dictionary") },
-                    supportingContent = { Text("Import full CC-CEDICT (cedict.txt)") },
-                    trailingContent = {
-                        Button(onClick = onImportDict) { Text("Import") }
-                    }
+                    headlineContent = { Text("Full Dictionary") },
+                    supportingContent = { Text("Import CC-CEDICT (cedict.txt)") },
+                    trailingContent = { Button(onClick = onImportDict) { Text("Import") } }
                 )
                 
                 if (diagnosticInfo.isNotEmpty()) {
