@@ -22,10 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.ledge.data.db.AppDatabase
-import com.example.ledge.data.model.AnkiDeck
-import com.example.ledge.data.model.AnkiNote
-import com.example.ledge.data.model.ChatMessage
-import com.example.ledge.data.model.DictionaryEntry
+import com.example.ledge.data.model.*
 import com.example.ledge.data.service.*
 import com.example.ledge.ui.components.*
 import com.example.ledge.ui.theme.LedgeTheme
@@ -69,15 +66,20 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     val gemmaService = remember { GemmaService(context) }
     val dictionaryService = remember { DictionaryService(context) }
 
+    // Global State
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
-    var currentDeckNotes by remember { mutableStateOf<List<AnkiNote>>(emptyList()) }
+    var sessionVocab by remember { mutableStateOf<Map<WordStatus, List<AnkiNote>>>(emptyMap()) }
     var noteModels by remember { mutableStateOf<List<Pair<Long, String>>>(emptyList()) }
     var chatHistory by remember { mutableStateOf(listOf<ChatMessage>()) }
     var isGemmaReady by remember { mutableStateOf(false) }
     var diagnosticInfo by remember { mutableStateOf("") }
     var copyProgress by remember { mutableStateOf(-1f) }
 
+    // Session Tracking
+    val wordsTappedInSession = remember { mutableSetOf<Long>() }
+
+    // Dictionary popup state
     var selectedWord by remember { mutableStateOf<String?>(null) }
     var matchingAnkiNote by remember { mutableStateOf<AnkiNote?>(null) }
     var dictEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
@@ -91,6 +93,9 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
             ContextCompat.checkSelfPermission(context, "com.ichi2.anki.permission.READ_WRITE_PERMISSION") == PackageManager.PERMISSION_GRANTED
         )
     }
+    var hasMicPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+    }
 
     LaunchedEffect(voiceService) {
         voiceService.setSpeechListener { if (!it) currentlySpeakingText = null }
@@ -100,12 +105,8 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
         chatHistory = chatDao.getAllMessages()
         val path = gemmaService.getPersistentModelPath()
         if (path != null) {
-            try {
-                gemmaService.initialize(path)
-                isGemmaReady = true
-            } catch (e: Exception) {
-                diagnosticInfo = "AI init error: ${e.message}"
-            }
+            try { gemmaService.initialize(path); isGemmaReady = true } 
+            catch (e: Exception) { diagnosticInfo = "AI init error: ${e.message}" }
         }
         
         if (hasAnkiPermission) {
@@ -116,7 +117,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                 if (savedDeckId != null) {
                     availableDecks.find { it.id == savedDeckId }?.let {
                         selectedDeck = it
-                        currentDeckNotes = ankiService.getPriorityNotesInDeck(it.id)
+                        sessionVocab = ankiService.getSessionVocabulary(it.name)
                     }
                 }
             }
@@ -127,15 +128,14 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
         hasAnkiPermission = isGranted
         if (isGranted) ankiService.getDecks().onSuccess { decks = it }
     }
+    
+    val micLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { hasMicPermission = it }
 
     val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             scope.launch {
-                try {
-                    diagnosticInfo = "Copying model..."
-                    val path = gemmaService.prepareModelFromUri(it) { p -> copyProgress = p }
-                    copyProgress = -1f; gemmaService.initialize(path); isGemmaReady = true; diagnosticInfo = "AI Ready!"
-                } catch (e: Exception) { diagnosticInfo = "Model Error: ${e.message}" }
+                diagnosticInfo = "Copying model..."; val path = gemmaService.prepareModelFromUri(it) { p -> copyProgress = p }
+                copyProgress = -1f; gemmaService.initialize(path); isGemmaReady = true; diagnosticInfo = "AI Ready!"
             }
         }
     }
@@ -143,10 +143,8 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     val dictPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             scope.launch {
-                try {
-                    diagnosticInfo = "Importing Dictionary..."; context.contentResolver.openInputStream(it)?.use { s -> dictionaryService.importFromStream(s) { p -> copyProgress = p } }
-                    copyProgress = -1f; diagnosticInfo = "Dictionary Ready!"
-                } catch (e: Exception) { diagnosticInfo = "Dict Error: ${e.message}"; copyProgress = -1f }
+                diagnosticInfo = "Importing Dictionary..."; context.contentResolver.openInputStream(it)?.use { s -> dictionaryService.importFromStream(s) { p -> copyProgress = p } }
+                copyProgress = -1f; diagnosticInfo = "Dictionary Ready!"
             }
         }
     }
@@ -156,7 +154,8 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
             LandingPage(
                 decks = decks, selectedDeck = selectedDeck, isGemmaReady = isGemmaReady,
                 onDeckSelect = { 
-                    selectedDeck = it; currentDeckNotes = ankiService.getPriorityNotesInDeck(it.id)
+                    selectedDeck = it 
+                    sessionVocab = ankiService.getSessionVocabulary(it.name)
                     scope.launch { settingsService.setSelectedDeckId(it.id) }
                 },
                 onOpenSettings = { navController.navigate("settings") },
@@ -178,26 +177,56 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
 
         composable("chat") {
             ChatView(
-                chatHistory = chatHistory, currentDeckNotes = currentDeckNotes, currentlySpeakingText = currentlySpeakingText,
+                chatHistory = chatHistory, sessionVocab = sessionVocab, currentlySpeakingText = currentlySpeakingText,
+                isMicPermissionGranted = hasMicPermission,
                 onBack = { navController.popBackStack() },
                 onSendMessage = { input ->
                     scope.launch {
-                        val vocab = currentDeckNotes.take(30).joinToString { it.fields.firstOrNull() ?: "" }
-                        val prompt = "You are a Mandarin tutor. Chat naturally. Vocabulary: $vocab. IMMERSION: Speak Hanzi only. FORMAT: Use spaces between words. User: $input"
+                        // Behavioral Sync: Mark non-tapped Due words as GOOD
+                        val lastAiResponse = chatHistory.lastOrNull()?.aiResponse ?: ""
+                        sessionVocab[WordStatus.DUE]?.forEach { note ->
+                            val word = note.fields.firstOrNull() ?: ""
+                            if (lastAiResponse.contains(word) && !wordsTappedInSession.contains(note.id)) {
+                                ankiService.pushReview(note.id, 3) // Rating 3 = Good
+                            }
+                        }
+
+                        val dueWords = sessionVocab[WordStatus.DUE]?.joinToString { it.fields.firstOrNull() ?: "" } ?: ""
+                        val newWords = sessionVocab[WordStatus.NEW]?.take(5)?.joinToString { it.fields.firstOrNull() ?: "" } ?: ""
+                        val knownWords = sessionVocab[WordStatus.KNOWN]?.take(20)?.joinToString { it.fields.firstOrNull() ?: "" } ?: ""
+                        
+                        val prompt = """
+                            You are a proactive Mandarin tutor. 
+                            GOAL: Lead an immersive conversation. 
+                            1. Priority: Review words due today: $dueWords. 
+                            2. Intro: If I do well, naturally use a new word: $newWords.
+                            3. Simplicity: If I'm stuck, explain using these words I know: $knownWords.
+                            IMMERSION: Speak ONLY in Chinese characters. Use spaces between words. 
+                            User: $input
+                        """.trimIndent()
+                        
                         val response = gemmaService.generateResponse(prompt)
                         val newMessage = ChatMessage(userText = input, aiResponse = response, deckName = selectedDeck?.name)
                         chatDao.insertMessage(newMessage); chatHistory = chatHistory + newMessage
                         currentlySpeakingText = response; voiceService.speak(response)
+                        
+                        // Clear tapping session for the new turn
+                        wordsTappedInSession.clear()
                     }
                 },
                 onSpeak = { voiceService.speak(it); currentlySpeakingText = it },
                 onStopSpeech = { voiceService.stop(); currentlySpeakingText = null },
-                onWordClick = { word, extra -> 
+                onWordClick = { word, note -> 
                     selectedWord = word
-                    matchingAnkiNote = currentDeckNotes.find { it.fields.firstOrNull() == word }
+                    matchingAnkiNote = note
+                    note?.let {
+                        wordsTappedInSession.add(it.id)
+                        ankiService.pushReview(it.id, 2) // Rating 2 = Hard (Auto-mark if tapped)
+                    }
                     scope.launch { dictEntries = dictionaryService.lookup(word) }
                 },
-                onAnkiRate = { note, ease -> ankiService.answerNote(note.id, ease); Toast.makeText(context, "Rated OK", Toast.LENGTH_SHORT).show() }
+                onRequestMic = { micLauncher.launch(android.Manifest.permission.RECORD_AUDIO) },
+                onStartMic = { voiceService.startListening { /* handle transcription update? We need a way to pass result back */ } }
             )
         }
     }
@@ -212,7 +241,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                     if (deck != null && model != null) {
                         if (ankiService.addNote(deck.id, model.first, listOf(entry.simplified, entry.pinyin, entry.definitions))) {
                             Toast.makeText(context, "Added!", Toast.LENGTH_SHORT).show()
-                            currentDeckNotes = ankiService.getPriorityNotesInDeck(deck.id)
+                            sessionVocab = ankiService.getSessionVocabulary(deck.name)
                         }
                     }
                 }

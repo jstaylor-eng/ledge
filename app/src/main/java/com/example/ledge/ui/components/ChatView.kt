@@ -2,6 +2,7 @@ package com.example.ledge.ui.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -14,26 +15,51 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.ledge.data.model.AnkiNote
 import com.example.ledge.data.model.ChatMessage
+import com.example.ledge.data.model.WordStatus
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatView(
     chatHistory: List<ChatMessage>,
-    currentDeckNotes: List<AnkiNote>,
+    sessionVocab: Map<WordStatus, List<AnkiNote>>,
     currentlySpeakingText: String?,
+    isMicPermissionGranted: Boolean,
     onBack: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSpeak: (String) -> Unit,
     onStopSpeech: () -> Unit,
-    onWordClick: (String, List<String>) -> Unit,
-    onAnkiRate: (AnkiNote, Int) -> Unit
+    onWordClick: (String, AnkiNote?) -> Unit,
+    onRequestMic: () -> Unit,
+    onStartMic: () -> Unit
 ) {
     var chatInput by remember { mutableStateOf("") }
+    
+    // Flatten vocab for easy lookup in bubbles
+    val vocabMap = remember(sessionVocab) {
+        val map = mutableMapOf<String, WordStatus>()
+        sessionVocab.forEach { (status, notes) ->
+            notes.forEach { note ->
+                note.fields.firstOrNull()?.let { map[it] = status }
+            }
+        }
+        map
+    }
+    
+    val allNotes = remember(sessionVocab) { sessionVocab.values.flatten() }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("AI Tutor") },
+                title = { 
+                    Column {
+                        Text("AI Tutor", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Reviewing ${sessionVocab[WordStatus.DUE]?.size ?: 0} words", 
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -42,32 +68,43 @@ fun ChatView(
             )
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
+        Column(modifier = Modifier.padding(padding).fillMaxSize().padding(horizontal = 16.dp)) {
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(chatHistory) { message ->
                     ChatBubble(
                         message = message,
-                        ankiNotes = currentDeckNotes,
+                        vocabMap = vocabMap,
+                        ankiNotes = allNotes,
                         isSpeaking = currentlySpeakingText == message.aiResponse,
                         onSpeak = { onSpeak(message.aiResponse) },
                         onStop = onStopSpeech,
-                        onWordClick = onWordClick,
-                        onAnkiRate = onAnkiRate
+                        onWordClick = onWordClick
                     )
                 }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically, 
+                modifier = Modifier.padding(bottom = 16.dp, top = 8.dp)
+            ) {
                 OutlinedTextField(
                     value = chatInput,
                     onValueChange = { chatInput = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text("Type in Chinese...") }
+                    placeholder = { Text("Speak or type...") }
                 )
+                
                 Spacer(modifier = Modifier.width(8.dp))
+                
+                IconButton(onClick = { if (isMicPermissionGranted) onStartMic() else onRequestMic() }) {
+                    Text("🎤", style = MaterialTheme.typography.headlineSmall)
+                }
+                
                 Button(onClick = { 
-                    onSendMessage(chatInput)
-                    chatInput = ""
+                    if (chatInput.isNotBlank()) {
+                        onSendMessage(chatInput)
+                        chatInput = ""
+                    }
                 }) {
                     Text("Send")
                 }
@@ -79,15 +116,14 @@ fun ChatView(
 @Composable
 fun ChatBubble(
     message: ChatMessage,
+    vocabMap: Map<String, WordStatus>,
     ankiNotes: List<AnkiNote>,
     isSpeaking: Boolean,
     onSpeak: () -> Unit,
     onStop: () -> Unit,
-    onWordClick: (String, List<String>) -> Unit,
-    onAnkiRate: (AnkiNote, Int) -> Unit
+    onWordClick: (String, AnkiNote?) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        // User message
         Text(
             text = "You: ${message.userText}",
             style = MaterialTheme.typography.labelSmall,
@@ -100,31 +136,18 @@ fun ChatBubble(
             modifier = Modifier.padding(top = 4.dp)
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                // Du Chinese Style Rendering
                 DuChineseText(
                     text = message.aiResponse,
+                    vocabMap = vocabMap,
                     ankiNotes = ankiNotes,
                     onWordClick = onWordClick
                 )
 
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
-                    IconButton(onClick = { if (isSpeaking) onStop() else onSpeak() }) {
-                        if (isSpeaking) Text("⏹️") else Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
-                    }
-                    
-                    Spacer(modifier = Modifier.weight(1f))
-                    
-                    // Priority words used in this message
-                    val usedNotes = ankiNotes.filter { note ->
-                        val hanzi = note.fields.firstOrNull() ?: ""
-                        hanzi.isNotEmpty() && message.aiResponse.contains(hanzi)
-                    }.take(3)
-                    
-                    usedNotes.forEach { note ->
-                        TextButton(onClick = { onAnkiRate(note, 3) }) {
-                            Text("Mark ${note.fields.firstOrNull()} OK", style = MaterialTheme.typography.labelSmall)
-                        }
-                    }
+                IconButton(
+                    onClick = { if (isSpeaking) onStop() else onSpeak() },
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    if (isSpeaking) Text("⏹️") else Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
                 }
             }
         }

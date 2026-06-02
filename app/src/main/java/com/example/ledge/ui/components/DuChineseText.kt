@@ -8,18 +8,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ledge.data.model.AnkiNote
+import com.example.ledge.data.model.WordStatus
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DuChineseText(
     text: String,
+    vocabMap: Map<String, WordStatus>,
     ankiNotes: List<AnkiNote>,
-    onWordClick: (String, List<String>) -> Unit
+    onWordClick: (String, AnkiNote?) -> Unit
 ) {
-    // Split text into words (using spaces as delimiters provided by Gemma)
     val words = text.split(" ").filter { it.isNotBlank() }
 
     FlowRow(
@@ -27,16 +29,14 @@ fun DuChineseText(
         horizontalArrangement = Arrangement.Start
     ) {
         words.forEach { word ->
-            // Check if word exists in Anki notes
-            val matchingNote = ankiNotes.find { note ->
-                note.fields.firstOrNull() == word
-            }
+            val status = vocabMap[word] ?: WordStatus.NONE
+            val matchingNote = ankiNotes.find { it.fields.firstOrNull() == word }
 
             WordItem(
                 word = word,
-                pinyin = matchingNote?.fields?.getOrNull(1), // Assuming 2nd field is Pinyin
-                translation = matchingNote?.fields?.getOrNull(2), // Assuming 3rd field is English
-                onClick = { p, t -> onWordClick(word, listOfNotNull(p, t)) }
+                status = status,
+                pinyin = matchingNote?.fields?.getOrNull(1),
+                onClick = { onWordClick(word, matchingNote) }
             )
         }
     }
@@ -45,15 +45,22 @@ fun DuChineseText(
 @Composable
 fun WordItem(
     word: String,
+    status: WordStatus,
     pinyin: String?,
-    translation: String?,
-    onClick: (String?, String?) -> Unit
+    onClick: () -> Unit
 ) {
+    // Underline color based on status
+    val underlineColor = when (status) {
+        WordStatus.DUE -> Color(0xFFFFD700) // Gold
+        WordStatus.NEW -> Color(0xFF4CAF50) // Green
+        else -> Color.Transparent
+    }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .padding(horizontal = 2.dp, vertical = 4.dp)
-            .clickable { onClick(pinyin, translation) }
+            .clickable { onClick() }
     ) {
         if (pinyin != null) {
             Text(
@@ -63,14 +70,22 @@ fun WordItem(
                 fontWeight = FontWeight.Light
             )
         } else {
-            // Placeholder to keep baseline alignment if no pinyin
             Spacer(modifier = Modifier.height(14.dp))
         }
+
         Text(
             text = word,
             fontSize = 18.sp,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textDecoration = if (underlineColor != Color.Transparent) TextDecoration.Underline else null
+            // Note: Modern Compose doesn't easily support colored underlines on Text directly 
+            // without custom drawing, but we'll use standard underline for now.
         )
+        
+        // Custom color bar if underlined
+        if (underlineColor != Color.Transparent) {
+            Divider(color = underlineColor, thickness = 2.dp, modifier = Modifier.width(20.dp))
+        }
     }
 }

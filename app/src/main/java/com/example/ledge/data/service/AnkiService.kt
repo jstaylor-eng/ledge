@@ -7,6 +7,7 @@ import android.database.Cursor
 import android.net.Uri
 import com.example.ledge.data.model.AnkiDeck
 import com.example.ledge.data.model.AnkiNote
+import com.example.ledge.data.model.WordStatus
 
 class AnkiService(private val context: Context) {
 
@@ -31,20 +32,10 @@ class AnkiService(private val context: Context) {
     fun getDecks(): Result<List<AnkiDeck>> {
         val decks = mutableListOf<AnkiDeck>()
         return try {
-            val projection = arrayOf("deck_id", "deck_name")
-            val cursor: Cursor? = context.contentResolver.query(DECKS_URI, projection, null, null, null)
-
-            if (cursor == null) {
-                return Result.failure(Exception("AnkiDroid Provider ($AUTHORITY) not found."))
-            }
-
-            cursor.use {
-                val idIndex = it.getColumnIndex("deck_id")
-                val nameIndex = it.getColumnIndex("deck_name")
-                if (idIndex != -1 && nameIndex != -1) {
-                    while (it.moveToNext()) {
-                        decks.add(AnkiDeck(it.getLong(idIndex), it.getString(nameIndex)))
-                    }
+            val cursor = context.contentResolver.query(DECKS_URI, arrayOf("deck_id", "deck_name"), null, null, null)
+            cursor?.use {
+                while (it.moveToNext()) {
+                    decks.add(AnkiDeck(it.getLong(0), it.getString(1)))
                 }
             }
             Result.success(decks)
@@ -66,18 +57,36 @@ class AnkiService(private val context: Context) {
         return models
     }
 
-    /**
-     * Gets notes with priority logic:
-     * 1. New/Due cards first.
-     * 2. Recently added cards second.
-     */
+    fun getNotesBySearch(deckName: String, query: String, status: WordStatus): List<AnkiNote> {
+        val notes = mutableListOf<AnkiNote>()
+        val fullQuery = "deck:\"$deckName\" $query"
+        val searchUri = NOTES_URI.buildUpon().appendQueryParameter("search", fullQuery).build()
+        try {
+            val cursor = context.contentResolver.query(searchUri, arrayOf("id", "flds", "interval"), null, null, null)
+            cursor?.use {
+                while (it.moveToNext()) {
+                    val id = it.getLong(0)
+                    val flds = it.getString(1).split("\u001f")
+                    val interval = it.getInt(2)
+                    notes.add(AnkiNote(id, flds, status, interval))
+                }
+            }
+        } catch (e: Exception) {}
+        return notes
+    }
+
+    fun getSessionVocabulary(deckName: String): Map<WordStatus, List<AnkiNote>> {
+        return mapOf(
+            WordStatus.DUE to getNotesBySearch(deckName, "is:due", WordStatus.DUE),
+            WordStatus.NEW to getNotesBySearch(deckName, "is:new", WordStatus.NEW),
+            WordStatus.KNOWN to getNotesBySearch(deckName, "prop:ivl>21", WordStatus.KNOWN)
+        )
+    }
+
     fun getPriorityNotesInDeck(deckId: Long): List<AnkiNote> {
         val notes = mutableListOf<AnkiNote>()
-        // In a full implementation, we'd query the 'cards' table to check intervals.
-        // For now, we'll fetch the most recent 50 notes, assuming they are the ones being learned.
         val deckNotesUri = Uri.withAppendedPath(CONTENT_URI, "decks/$deckId/notes")
         try {
-            // Sorting by ID descending usually gives the newest notes first
             val cursor = context.contentResolver.query(deckNotesUri, arrayOf("id", "flds"), null, null, "id DESC")
             cursor?.use {
                 while (it.moveToNext()) {
@@ -90,9 +99,7 @@ class AnkiService(private val context: Context) {
         return notes
     }
 
-    fun getNotesInDeck(deckId: Long): List<AnkiNote> = getPriorityNotesInDeck(deckId)
-
-    fun answerNote(noteId: Long, ease: Int): Boolean {
+    fun pushReview(noteId: Long, ease: Int): Boolean {
         return try {
             val values = ContentValues().apply {
                 put("note_id", noteId)
