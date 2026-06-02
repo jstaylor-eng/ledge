@@ -1,7 +1,10 @@
 package com.example.ledge
 
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -42,10 +45,7 @@ class MainActivity : ComponentActivity() {
             val isDark = savedDarkMode ?: isSystemInDarkTheme()
 
             LedgeTheme(darkTheme = isDark) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     LedgeApp(voiceService!!, settingsService, isDark)
                 }
             }
@@ -59,11 +59,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun LedgeApp(
-    voiceService: VoiceService,
-    settingsService: SettingsService,
-    isDarkMode: Boolean
-) {
+fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDarkMode: Boolean) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val navController = rememberNavController()
@@ -80,11 +76,14 @@ fun LedgeApp(
     var chatHistory by remember { mutableStateOf(listOf<ChatMessage>()) }
     var isGemmaReady by remember { mutableStateOf(false) }
     var diagnosticInfo by remember { mutableStateOf("") }
+    var copyProgress by remember { mutableStateOf(-1f) }
 
     var selectedWord by remember { mutableStateOf<String?>(null) }
-    var wordEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
+    var matchingAnkiNote by remember { mutableStateOf<AnkiNote?>(null) }
+    var dictEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
     var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
 
+    val useWordSpaces by settingsService.useWordSpaces.collectAsState(initial = true)
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
     var hasAnkiPermission by remember {
         mutableStateOf(
@@ -115,10 +114,9 @@ fun LedgeApp(
                 noteModels = ankiService.getModels()
                 val savedDeckId = settingsService.selectedDeckId.first()
                 if (savedDeckId != null) {
-                    val deck = availableDecks.find { it.id == savedDeckId }
-                    if (deck != null) {
-                        selectedDeck = deck
-                        currentDeckNotes = ankiService.getPriorityNotesInDeck(deck.id)
+                    availableDecks.find { it.id == savedDeckId }?.let {
+                        selectedDeck = it
+                        currentDeckNotes = ankiService.getPriorityNotesInDeck(it.id)
                     }
                 }
             }
@@ -130,31 +128,57 @@ fun LedgeApp(
         if (isGranted) ankiService.getDecks().onSuccess { decks = it }
     }
 
+    val modelPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            scope.launch {
+                try {
+                    diagnosticInfo = "Copying model..."
+                    val path = gemmaService.prepareModelFromUri(it) { p -> copyProgress = p }
+                    copyProgress = -1f; gemmaService.initialize(path); isGemmaReady = true; diagnosticInfo = "AI Ready!"
+                } catch (e: Exception) { diagnosticInfo = "Model Error: ${e.message}" }
+            }
+        }
+    }
+
+    val dictPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            scope.launch {
+                try {
+                    diagnosticInfo = "Importing Dictionary..."; context.contentResolver.openInputStream(it)?.use { s -> dictionaryService.importFromStream(s) { p -> copyProgress = p } }
+                    copyProgress = -1f; diagnosticInfo = "Dictionary Ready!"
+                } catch (e: Exception) { diagnosticInfo = "Dict Error: ${e.message}"; copyProgress = -1f }
+            }
+        }
+    }
+
     NavHost(navController = navController, startDestination = "landing") {
         composable("landing") {
             LandingPage(
-                decks = decks,
-                selectedDeck = selectedDeck,
-                isGemmaReady = isGemmaReady,
-                diagnosticInfo = diagnosticInfo,
-                isDarkMode = isDarkMode,
+                decks = decks, selectedDeck = selectedDeck, isGemmaReady = isGemmaReady,
                 onDeckSelect = { 
-                    selectedDeck = it 
-                    currentDeckNotes = ankiService.getPriorityNotesInDeck(it.id)
+                    selectedDeck = it; currentDeckNotes = ankiService.getPriorityNotesInDeck(it.id)
                     scope.launch { settingsService.setSelectedDeckId(it.id) }
                 },
-                onToggleTheme = { scope.launch { settingsService.setDarkMode(it) } },
-                onOpenSettings = { /* Add settings dialog call here */ },
+                onOpenSettings = { navController.navigate("settings") },
                 onStartChat = { navController.navigate("chat") },
                 onRequestAnki = { ankiLauncher.launch(modernPermission) }
             )
         }
         
+        composable("settings") {
+            SettingsView(
+                isDarkMode = isDarkMode, useWordSpaces = useWordSpaces, diagnosticInfo = diagnosticInfo,
+                onBack = { navController.popBackStack() },
+                onToggleTheme = { scope.launch { settingsService.setDarkMode(it) } },
+                onToggleSpaces = { scope.launch { settingsService.setUseWordSpaces(it) } },
+                onImportModel = { modelPicker.launch("*/*") },
+                onImportDict = { dictPicker.launch("*/*") }
+            )
+        }
+
         composable("chat") {
             ChatView(
-                chatHistory = chatHistory,
-                currentDeckNotes = currentDeckNotes,
-                currentlySpeakingText = currentlySpeakingText,
+                chatHistory = chatHistory, currentDeckNotes = currentDeckNotes, currentlySpeakingText = currentlySpeakingText,
                 onBack = { navController.popBackStack() },
                 onSendMessage = { input ->
                     scope.launch {
@@ -162,30 +186,25 @@ fun LedgeApp(
                         val prompt = "You are a Mandarin tutor. Chat naturally. Vocabulary: $vocab. IMMERSION: Speak Hanzi only. FORMAT: Use spaces between words. User: $input"
                         val response = gemmaService.generateResponse(prompt)
                         val newMessage = ChatMessage(userText = input, aiResponse = response, deckName = selectedDeck?.name)
-                        chatDao.insertMessage(newMessage)
-                        chatHistory = chatHistory + newMessage
-                        currentlySpeakingText = response
-                        voiceService.speak(response)
+                        chatDao.insertMessage(newMessage); chatHistory = chatHistory + newMessage
+                        currentlySpeakingText = response; voiceService.speak(response)
                     }
                 },
                 onSpeak = { voiceService.speak(it); currentlySpeakingText = it },
                 onStopSpeech = { voiceService.stop(); currentlySpeakingText = null },
                 onWordClick = { word, extra -> 
                     selectedWord = word
-                    scope.launch { wordEntries = dictionaryService.lookup(word) }
+                    matchingAnkiNote = currentDeckNotes.find { it.fields.firstOrNull() == word }
+                    scope.launch { dictEntries = dictionaryService.lookup(word) }
                 },
-                onAnkiRate = { note, ease ->
-                    ankiService.answerNote(note.id, ease)
-                    Toast.makeText(context, "Rated OK", Toast.LENGTH_SHORT).show()
-                }
+                onAnkiRate = { note, ease -> ankiService.answerNote(note.id, ease); Toast.makeText(context, "Rated OK", Toast.LENGTH_SHORT).show() }
             )
         }
     }
 
     selectedWord?.let { word ->
         WordPopup(
-            word = word,
-            entries = wordEntries,
+            word = word, ankiNote = matchingAnkiNote, dictEntries = dictEntries,
             onAddToAnki = { entry ->
                 scope.launch {
                     val deck = selectedDeck ?: decks.firstOrNull()

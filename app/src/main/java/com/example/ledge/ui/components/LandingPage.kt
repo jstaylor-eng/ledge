@@ -13,15 +13,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.ledge.data.model.AnkiDeck
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LandingPage(
     decks: List<AnkiDeck>,
     selectedDeck: AnkiDeck?,
     isGemmaReady: Boolean,
-    diagnosticInfo: String,
-    isDarkMode: Boolean,
     onDeckSelect: (AnkiDeck) -> Unit,
-    onToggleTheme: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     onStartChat: () -> Unit,
     onRequestAnki: () -> Unit
@@ -42,24 +40,7 @@ fun LandingPage(
         Spacer(modifier = Modifier.height(8.dp))
         Text(text = "Offline AI Language Tutor", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
         
-        if (diagnosticInfo.isNotEmpty()) {
-            Text("Status: $diagnosticInfo", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Quick Settings
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Dark Mode", modifier = Modifier.weight(1f))
-                Switch(checked = isDarkMode, onCheckedChange = onToggleTheme)
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(48.dp))
 
         if (decks.isEmpty()) {
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -68,32 +49,35 @@ fun LandingPage(
                 }
             }
         } else {
-            Text("Choose a Deck to Study:", style = MaterialTheme.typography.labelLarge)
-            Spacer(modifier = Modifier.height(8.dp))
+            Text("Select Your Study Deck:", style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.height(16.dp))
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(decks) { deck ->
                     val isSelected = selectedDeck?.id == deck.id
-                    OutlinedButton(
-                        onClick = { onDeckSelect(deck) },
+                    Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        colors = if (isSelected) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) else ButtonDefaults.outlinedButtonColors()
+                        onClick = { onDeckSelect(deck) },
+                        colors = if (isSelected) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else CardDefaults.cardColors()
                     ) {
-                        Text(deck.name)
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = deck.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+                            if (isSelected) Text("✅", style = MaterialTheme.typography.bodyLarge)
+                        }
                     }
                 }
             }
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
             
             Button(
                 onClick = onStartChat,
-                modifier = Modifier.fillMaxWidth().height(56.dp),
+                modifier = Modifier.fillMaxWidth().height(64.dp),
                 enabled = isGemmaReady && selectedDeck != null
             ) {
-                Text("Start Chatting")
+                Text("Start Learning Session")
             }
             if (!isGemmaReady) {
-                Text("Please initialize AI in settings first", style = MaterialTheme.typography.labelSmall, color = Color.Red)
+                Text("AI Engine not ready. Go to Settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
             }
         }
     }
