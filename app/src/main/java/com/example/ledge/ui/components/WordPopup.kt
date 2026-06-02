@@ -7,8 +7,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.ledge.data.model.AnkiNote
 import com.example.ledge.data.model.DictionaryEntry
 
@@ -22,22 +24,37 @@ fun WordPopup(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
         title = {
-            Text(text = word, style = MaterialTheme.typography.headlineSmall)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(text = word, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                
+                // Show HSK badge if available in dictionary
+                val hsk = dictEntries.firstOrNull { it.hskLevel > 0 }?.hskLevel
+                if (hsk != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = "HSK $hsk",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            }
         },
         text = {
             Column {
                 if (ankiNote != null) {
-                    Text("From Anki:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Anki Note:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Card(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            // Fields: [0]=Hanzi, [1]=Pinyin, [2]=English
                             Text(text = ankiNote.fields.getOrNull(1) ?: "", fontWeight = FontWeight.Bold)
                             Text(text = ankiNote.fields.getOrNull(2) ?: "", style = MaterialTheme.typography.bodyMedium)
                         }
@@ -46,7 +63,7 @@ fun WordPopup(
                 }
 
                 if (dictEntries.isNotEmpty()) {
-                    Text("Dictionary Definitions:", style = MaterialTheme.typography.labelMedium)
+                    Text("Definitions:", style = MaterialTheme.typography.labelMedium)
                     LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
                         items(dictEntries) { entry ->
                             Column(modifier = Modifier.padding(vertical = 8.dp)) {
@@ -73,7 +90,7 @@ fun WordPopup(
                         }
                     }
                 } else if (ankiNote == null) {
-                    Text("No definition found offline. Try importing CC-CEDICT in settings.")
+                    Text("No definition found offline.")
                 }
             }
         }

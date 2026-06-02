@@ -16,5 +16,6 @@ data class DictionaryEntry(
     val simplified: String,
     val traditional: String,
     val pinyin: String,
-    val definitions: String
+    val definitions: String,
+    val hskLevel: Int = 0 // 0 = None, 1-6 = HSK Level
 )

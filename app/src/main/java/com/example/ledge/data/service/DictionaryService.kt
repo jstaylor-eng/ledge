@@ -29,13 +29,11 @@ class DictionaryService(private val context: Context) {
             val total = lines.size
             val entries = mutableListOf<DictionaryEntry>()
 
-            // Clear old data if re-importing
             db.clearAllTables()
 
             lines.forEachIndexed { index, line ->
                 if (line.startsWith("#")) return@forEachIndexed
 
-                // Parse CC-CEDICT format: Traditional Simplified [pinyin] /def1/def2/
                 try {
                     val firstSpace = line.indexOf(" ")
                     val secondSpace = line.indexOf(" ", firstSpace + 1)
@@ -47,13 +45,18 @@ class DictionaryService(private val context: Context) {
                     val traditional = line.substring(0, firstSpace)
                     val simplified = line.substring(firstSpace + 1, secondSpace)
                     val pinyin = line.substring(pinyinStart + 1, pinyinEnd)
-                    val definitions = line.substring(pinyinEnd + 1).trim()
+                    val rawDefinitions = line.substring(pinyinEnd + 1).trim()
+                    
+                    // Simple HSK detection: look for 'HSK1', 'HSK 2' etc in definitions
+                    val hskMatch = Regex("HSK\\s*([1-6])").find(rawDefinitions)
+                    val hskLevel = hskMatch?.groupValues?.get(1)?.toInt() ?: 0
 
                     entries.add(DictionaryEntry(
                         traditional = traditional,
                         simplified = simplified,
                         pinyin = pinyin,
-                        definitions = definitions
+                        definitions = rawDefinitions,
+                        hskLevel = hskLevel
                     ))
 
                     if (entries.size >= 2000) {
@@ -61,13 +64,9 @@ class DictionaryService(private val context: Context) {
                         entries.clear()
                         onProgress(index.toFloat() / total.toFloat())
                     }
-                } catch (e: Exception) {
-                    // Skip malformed lines
-                }
+                } catch (e: Exception) {}
             }
-            if (entries.isNotEmpty()) {
-                dao.insertAll(entries)
-            }
+            if (entries.isNotEmpty()) dao.insertAll(entries)
             onProgress(1.0f)
         } catch (e: Exception) {
             Log.e("DictionaryService", "Import failed: ${e.message}")

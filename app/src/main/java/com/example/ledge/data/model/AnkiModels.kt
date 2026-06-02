@@ -15,3 +15,7 @@ data class AnkiNote(
     val status: WordStatus = WordStatus.NONE,
     val interval: Int = 0
 )
+
+enum class LessonMode {
+    FREE_CHAT, DAILY_STORY, INTENSIVE_REVIEW
+}

@@ -66,7 +66,6 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     val gemmaService = remember { GemmaService(context) }
     val dictionaryService = remember { DictionaryService(context) }
 
-    // Global State
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
     var sessionVocab by remember { mutableStateOf<Map<WordStatus, List<AnkiNote>>>(emptyMap()) }
@@ -76,16 +75,11 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     var diagnosticInfo by remember { mutableStateOf("") }
     var copyProgress by remember { mutableStateOf(-1f) }
 
-    // Session Tracking
     val wordsTappedInSession = remember { mutableSetOf<Long>() }
-
-    // Dictionary popup state
     var selectedWord by remember { mutableStateOf<String?>(null) }
     var matchingAnkiNote by remember { mutableStateOf<AnkiNote?>(null) }
     var dictEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
     var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
-
-    // STT helper
     var pendingTranscription by remember { mutableStateOf<String?>(null) }
 
     val useWordSpaces by settingsService.useWordSpaces.collectAsState(initial = true)
@@ -216,7 +210,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                             User: $input
                         """.trimIndent()
                         
-                        val response = gemmaService.generateResponse(prompt)
+                        val response = gemmaService.generateFullResponse(prompt)
                         val newMessage = ChatMessage(userText = input, aiResponse = response, deckName = selectedDeck?.name)
                         chatDao.insertMessage(newMessage); chatHistory = chatHistory + newMessage
                         currentlySpeakingText = response; voiceService.speak(response)
