@@ -66,8 +66,10 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     val gemmaService = remember { GemmaService(context) }
     val dictionaryService = remember { DictionaryService(context) }
 
+    // Global State
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
     var selectedDeck by remember { mutableStateOf<AnkiDeck?>(null) }
+    var selectedMode by remember { mutableStateOf(LessonMode.FREE_CHAT) }
     var sessionVocab by remember { mutableStateOf<Map<WordStatus, List<AnkiNote>>>(emptyMap()) }
     var noteModels by remember { mutableStateOf<List<Pair<Long, String>>>(emptyList()) }
     var chatHistory by remember { mutableStateOf(listOf<ChatMessage>()) }
@@ -75,11 +77,16 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     var diagnosticInfo by remember { mutableStateOf("") }
     var copyProgress by remember { mutableStateOf(-1f) }
 
+    // Session Tracking
     val wordsTappedInSession = remember { mutableSetOf<Long>() }
+
+    // Dictionary popup state
     var selectedWord by remember { mutableStateOf<String?>(null) }
     var matchingAnkiNote by remember { mutableStateOf<AnkiNote?>(null) }
     var dictEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
     var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
+
+    // STT helper
     var pendingTranscription by remember { mutableStateOf<String?>(null) }
 
     val useWordSpaces by settingsService.useWordSpaces.collectAsState(initial = true)
@@ -153,12 +160,13 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     NavHost(navController = navController, startDestination = "landing") {
         composable("landing") {
             LandingPage(
-                decks = decks, selectedDeck = selectedDeck, isGemmaReady = isGemmaReady,
+                decks = decks, selectedDeck = selectedDeck, selectedMode = selectedMode, isGemmaReady = isGemmaReady,
                 onDeckSelect = { 
                     selectedDeck = it 
                     sessionVocab = ankiService.getSessionVocabulary(it.name)
                     scope.launch { settingsService.setSelectedDeckId(it.id) }
                 },
+                onModeSelect = { selectedMode = it },
                 onOpenSettings = { navController.navigate("settings") },
                 onStartChat = { navController.navigate("chat") },
                 onRequestAnki = { ankiLauncher.launch(modernPermission) }
@@ -187,6 +195,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                 onSendMessage = { input ->
                     pendingTranscription = null
                     scope.launch {
+                        // Behavioral Sync: Mark non-tapped Due words as GOOD
                         val lastAiResponse = chatHistory.lastOrNull()?.aiResponse ?: ""
                         sessionVocab[WordStatus.DUE]?.forEach { note ->
                             val word = note.fields.firstOrNull() ?: ""
@@ -199,21 +208,36 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                         val newWords = sessionVocab[WordStatus.NEW]?.take(5)?.joinToString { it.fields.firstOrNull() ?: "" } ?: ""
                         val knownWords = sessionVocab[WordStatus.KNOWN]?.take(20)?.joinToString { it.fields.firstOrNull() ?: "" } ?: ""
                         
+                        val modeInstruction = when(selectedMode) {
+                            LessonMode.DAILY_STORY -> "TELL A SHORT STORY using the vocab. Make it engaging."
+                            LessonMode.INTENSIVE_REVIEW -> "Strictly quiz me on the DUE words. Don't use other complex Hanzi."
+                            else -> "Lead a natural conversation."
+                        }
+
                         val prompt = """
                             You are a proactive Mandarin tutor. 
-                            GOAL: Lead an immersive conversation. 
-                            1. Priority: Review words due today: $dueWords. 
-                            2. Intro: If I do well, naturally use a new word: $newWords.
-                            3. Simplicity: If I'm stuck, explain using these words I know: $knownWords.
+                            GOAL: $modeInstruction
+                            VOCAB: DUE Today: $dueWords. INTRODUCE: $newWords. BASELINE: $knownWords.
                             IMMERSION: Speak ONLY in Chinese characters. Use spaces between words. 
                             FORMAT: Provide your response as 'Hanzi | English Translation'.
                             User: $input
                         """.trimIndent()
                         
-                        val response = gemmaService.generateFullResponse(prompt)
-                        val newMessage = ChatMessage(userText = input, aiResponse = response, deckName = selectedDeck?.name)
-                        chatDao.insertMessage(newMessage); chatHistory = chatHistory + newMessage
-                        currentlySpeakingText = response; voiceService.speak(response)
+                        // Streaming UI Implementation
+                        var streamedResponse = ""
+                        val streamingMessage = ChatMessage(userText = input, aiResponse = "...", deckName = selectedDeck?.name)
+                        chatHistory = chatHistory + streamingMessage
+                        
+                        gemmaService.streamResponse(prompt).collect { partial ->
+                            streamedResponse += partial
+                            // Update last message in chat history with progress
+                            chatHistory = chatHistory.dropLast(1) + streamingMessage.copy(aiResponse = streamedResponse)
+                        }
+                        
+                        // Finalize and save to DB
+                        chatDao.insertMessage(streamingMessage.copy(aiResponse = streamedResponse))
+                        currentlySpeakingText = streamedResponse
+                        voiceService.speak(streamedResponse)
                         wordsTappedInSession.clear()
                     }
                 },
@@ -228,6 +252,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                     }
                     scope.launch { dictEntries = dictionaryService.lookup(word) }
                 },
+                onTogglePinyin = { scope.launch { settingsService.setShowAllPinyin(it) } },
                 onRequestMic = { micLauncher.launch(android.Manifest.permission.RECORD_AUDIO) },
                 onStartMic = { voiceService.startListening { pendingTranscription = it } }
             )

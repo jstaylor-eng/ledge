@@ -12,14 +12,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.ledge.data.model.AnkiDeck
+import com.example.ledge.data.model.LessonMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LandingPage(
     decks: List<AnkiDeck>,
     selectedDeck: AnkiDeck?,
+    selectedMode: LessonMode,
     isGemmaReady: Boolean,
     onDeckSelect: (AnkiDeck) -> Unit,
+    onModeSelect: (LessonMode) -> Unit,
     onOpenSettings: () -> Unit,
     onStartChat: () -> Unit,
     onRequestAnki: () -> Unit
@@ -40,7 +43,7 @@ fun LandingPage(
         Spacer(modifier = Modifier.height(8.dp))
         Text(text = "Offline AI Language Tutor", style = MaterialTheme.typography.titleMedium, color = Color.Gray)
         
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         if (decks.isEmpty()) {
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -49,8 +52,25 @@ fun LandingPage(
                 }
             }
         } else {
-            Text("Select Your Study Deck:", style = MaterialTheme.typography.labelLarge)
+            Text("1. Choose a Lesson Mode:", style = MaterialTheme.typography.labelLarge)
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    LessonMode.FREE_CHAT to "Chat",
+                    LessonMode.DAILY_STORY to "Story",
+                    LessonMode.INTENSIVE_REVIEW to "Review"
+                ).forEach { (mode, label) ->
+                    FilterChip(
+                        selected = selectedMode == mode,
+                        onClick = { onModeSelect(mode) },
+                        label = { Text(label) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
+            Text("2. Select Your Study Deck:", style = MaterialTheme.typography.labelLarge)
+            Spacer(modifier = Modifier.height(8.dp))
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(decks) { deck ->
                     val isSelected = selectedDeck?.id == deck.id
@@ -61,7 +81,7 @@ fun LandingPage(
                     ) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(text = deck.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-                            if (isSelected) Text("✅", style = MaterialTheme.typography.bodyLarge)
+                            if (isSelected) Text("✅")
                         }
                     }
                 }
@@ -74,7 +94,11 @@ fun LandingPage(
                 modifier = Modifier.fillMaxWidth().height(64.dp),
                 enabled = isGemmaReady && selectedDeck != null
             ) {
-                Text("Start Learning Session")
+                Text(when(selectedMode) {
+                    LessonMode.DAILY_STORY -> "Start Story Session"
+                    LessonMode.INTENSIVE_REVIEW -> "Start Intensive Review"
+                    else -> "Start Free Chat"
+                })
             }
             if (!isGemmaReady) {
                 Text("AI Engine not ready. Go to Settings.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))

@@ -6,6 +6,7 @@ import com.google.ai.edge.litertlm.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -48,15 +49,25 @@ class GemmaService(private val context: Context) {
         engine?.initialize()
     }
 
+    fun streamResponse(prompt: String): Flow<String> = flow {
+        val currentEngine = engine ?: throw Exception("AI not initialized")
+        currentEngine.createConversation().use { conversation ->
+            // sendMessageAsync returns Flow<Message>. We extract the text content.
+            conversation.sendMessageAsync(prompt).collect { partialMessage ->
+                // In LiteRT-LM 0.11.0, the partial message itself IS the chunk of text
+                // if it's being streamed.
+                emit(partialMessage.toString()) 
+            }
+        }
+    }
+
     suspend fun generateFullResponse(prompt: String): String = withContext(Dispatchers.Default) {
         try {
             val currentEngine = engine ?: return@withContext "AI not initialized"
             var full = ""
             currentEngine.createConversation().use { conversation ->
-                // Use a different collect mechanism to be safe
-                val responseFlow = conversation.sendMessageAsync(prompt)
-                responseFlow.collect { partial ->
-                    full += partial
+                conversation.sendMessageAsync(prompt).collect { partial ->
+                    full += partial.toString()
                 }
             }
             full

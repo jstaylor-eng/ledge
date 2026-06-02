@@ -35,6 +35,7 @@ fun ChatView(
     onSpeak: (String) -> Unit,
     onStopSpeech: () -> Unit,
     onWordClick: (String, AnkiNote?) -> Unit,
+    onTogglePinyin: (Boolean) -> Unit,
     onRequestMic: () -> Unit,
     onStartMic: () -> Unit
 ) {
@@ -57,13 +58,24 @@ fun ChatView(
             Column {
                 TopAppBar(
                     title = { Text("AI Tutor") },
-                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } }
+                    navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } },
+                    actions = {
+                        // Quick Pinyin Toggle (Du Chinese style)
+                        TextButton(onClick = { onTogglePinyin(!showAllPinyin) }) {
+                            Text(
+                                text = if (showAllPinyin) "Pinyin ON" else "Pinyin OFF",
+                                color = if (showAllPinyin) MaterialTheme.colorScheme.primary else Color.Gray,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                 )
                 AnimatedVisibility(visible = focusedTranslation != null) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.primaryContainer)
+                            .clickable { focusedTranslation = null } // Tap to hide
                             .padding(16.dp)
                     ) {
                         Text(
