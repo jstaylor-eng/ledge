@@ -49,25 +49,27 @@ fun WordItem(
     pinyin: String?,
     onClick: () -> Unit
 ) {
-    // Underline color based on status
     val underlineColor = when (status) {
-        WordStatus.DUE -> Color(0xFFFFD700) // Gold
-        WordStatus.NEW -> Color(0xFF4CAF50) // Green
+        WordStatus.DUE -> Color(0xFFFFD700)
+        WordStatus.NEW -> Color(0xFF4CAF50)
         else -> Color.Transparent
     }
+
+    // Only show Pinyin automatically for NEW words
+    val shouldShowPinyin = (status == WordStatus.NEW)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .padding(horizontal = 2.dp, vertical = 4.dp)
+            .padding(horizontal = 2.dp, vertical = 2.dp)
             .clickable { onClick() }
     ) {
-        if (pinyin != null) {
+        if (shouldShowPinyin && pinyin != null) {
             Text(
                 text = pinyin,
                 fontSize = 10.sp,
                 color = MaterialTheme.colorScheme.secondary,
-                fontWeight = FontWeight.Light
+                fontWeight = FontWeight.Normal
             )
         } else {
             Spacer(modifier = Modifier.height(14.dp))
@@ -75,15 +77,12 @@ fun WordItem(
 
         Text(
             text = word,
-            fontSize = 18.sp,
+            fontSize = 20.sp,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textDecoration = if (underlineColor != Color.Transparent) TextDecoration.Underline else null
-            // Note: Modern Compose doesn't easily support colored underlines on Text directly 
-            // without custom drawing, but we'll use standard underline for now.
         )
         
-        // Custom color bar if underlined
         if (underlineColor != Color.Transparent) {
             Divider(color = underlineColor, thickness = 2.dp, modifier = Modifier.width(20.dp))
         }

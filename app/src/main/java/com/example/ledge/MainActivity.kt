@@ -65,6 +65,7 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     val ankiService = remember { AnkiService(context) }
     val gemmaService = remember { GemmaService(context) }
     val dictionaryService = remember { DictionaryService(context) }
+    val settingsServiceInstance = remember { settingsService }
 
     // Global State
     var decks by remember { mutableStateOf<List<AnkiDeck>>(emptyList()) }
@@ -84,6 +85,9 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     var matchingAnkiNote by remember { mutableStateOf<AnkiNote?>(null) }
     var dictEntries by remember { mutableStateOf<List<DictionaryEntry>>(emptyList()) }
     var currentlySpeakingText by remember { mutableStateOf<String?>(null) }
+
+    // STT helper
+    var pendingTranscription by remember { mutableStateOf<String?>(null) }
 
     val useWordSpaces by settingsService.useWordSpaces.collectAsState(initial = true)
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
@@ -143,8 +147,10 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
     val dictPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             scope.launch {
-                diagnosticInfo = "Importing Dictionary..."; context.contentResolver.openInputStream(it)?.use { s -> dictionaryService.importFromStream(s) { p -> copyProgress = p } }
-                copyProgress = -1f; diagnosticInfo = "Dictionary Ready!"
+                try {
+                    diagnosticInfo = "Importing Dictionary..."; context.contentResolver.openInputStream(it)?.use { s -> dictionaryService.importFromStream(s) { p -> copyProgress = p } }
+                    copyProgress = -1f; diagnosticInfo = "Dictionary Ready!"
+                } catch (e: Exception) { diagnosticInfo = "Dict Error: ${e.message}"; copyProgress = -1f }
             }
         }
     }
@@ -179,15 +185,16 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
             ChatView(
                 chatHistory = chatHistory, sessionVocab = sessionVocab, currentlySpeakingText = currentlySpeakingText,
                 isMicPermissionGranted = hasMicPermission,
+                transcription = pendingTranscription,
                 onBack = { navController.popBackStack() },
                 onSendMessage = { input ->
+                    pendingTranscription = null
                     scope.launch {
-                        // Behavioral Sync: Mark non-tapped Due words as GOOD
                         val lastAiResponse = chatHistory.lastOrNull()?.aiResponse ?: ""
                         sessionVocab[WordStatus.DUE]?.forEach { note ->
                             val word = note.fields.firstOrNull() ?: ""
                             if (lastAiResponse.contains(word) && !wordsTappedInSession.contains(note.id)) {
-                                ankiService.pushReview(note.id, 3) // Rating 3 = Good
+                                ankiService.pushReview(note.id, 3) 
                             }
                         }
 
@@ -209,8 +216,6 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                         val newMessage = ChatMessage(userText = input, aiResponse = response, deckName = selectedDeck?.name)
                         chatDao.insertMessage(newMessage); chatHistory = chatHistory + newMessage
                         currentlySpeakingText = response; voiceService.speak(response)
-                        
-                        // Clear tapping session for the new turn
                         wordsTappedInSession.clear()
                     }
                 },
@@ -221,12 +226,12 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                     matchingAnkiNote = note
                     note?.let {
                         wordsTappedInSession.add(it.id)
-                        ankiService.pushReview(it.id, 2) // Rating 2 = Hard (Auto-mark if tapped)
+                        ankiService.pushReview(it.id, 2)
                     }
                     scope.launch { dictEntries = dictionaryService.lookup(word) }
                 },
                 onRequestMic = { micLauncher.launch(android.Manifest.permission.RECORD_AUDIO) },
-                onStartMic = { voiceService.startListening { /* handle transcription update? We need a way to pass result back */ } }
+                onStartMic = { voiceService.startListening { pendingTranscription = it } }
             )
         }
     }

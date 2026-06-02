@@ -24,6 +24,7 @@ fun ChatView(
     sessionVocab: Map<WordStatus, List<AnkiNote>>,
     currentlySpeakingText: String?,
     isMicPermissionGranted: Boolean,
+    transcription: String?,
     onBack: () -> Unit,
     onSendMessage: (String) -> Unit,
     onSpeak: (String) -> Unit,
@@ -34,7 +35,11 @@ fun ChatView(
 ) {
     var chatInput by remember { mutableStateOf("") }
     
-    // Flatten vocab for easy lookup in bubbles
+    // Auto-update input when voice is transcribed
+    LaunchedEffect(transcription) {
+        if (transcription != null) chatInput = transcription
+    }
+    
     val vocabMap = remember(sessionVocab) {
         val map = mutableMapOf<String, WordStatus>()
         sessionVocab.forEach { (status, notes) ->
