@@ -16,11 +16,13 @@ fun SettingsView(
     isDarkMode: Boolean,
     useWordSpaces: Boolean,
     showAllPinyin: Boolean,
+    speechSpeed: Float,
     diagnosticInfo: String,
     onBack: () -> Unit,
     onToggleTheme: (Boolean) -> Unit,
     onToggleSpaces: (Boolean) -> Unit,
     onTogglePinyin: (Boolean) -> Unit,
+    onSetSpeed: (Float) -> Unit,
     onImportModel: () -> Unit,
     onImportDict: () -> Unit
 ) {
@@ -45,14 +47,25 @@ fun SettingsView(
                 )
                 ListItem(
                     headlineContent = { Text("Show Word Spaces") },
-                    supportingContent = { Text("Helps with word boundaries") },
                     trailingContent = { Switch(checked = useWordSpaces, onCheckedChange = onToggleSpaces) }
                 )
                 ListItem(
                     headlineContent = { Text("Always Show Pinyin") },
-                    supportingContent = { Text("Show Pinyin for all words, not just new ones") },
                     trailingContent = { Switch(checked = showAllPinyin, onCheckedChange = onTogglePinyin) }
                 )
+                Divider()
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text("Audio", style = MaterialTheme.typography.titleMedium)
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text("Speech Speed: ${"%.1f".format(speechSpeed)}x", style = MaterialTheme.typography.bodyMedium)
+                    Slider(
+                        value = speechSpeed,
+                        onValueChange = onSetSpeed,
+                        valueRange = 0.5f..1.5f,
+                        steps = 9
+                    )
+                }
                 Divider()
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -63,7 +76,6 @@ fun SettingsView(
                 )
                 ListItem(
                     headlineContent = { Text("Full Dictionary") },
-                    supportingContent = { Text("Import CC-CEDICT (cedict.txt)") },
                     trailingContent = { Button(onClick = onImportDict) { Text("Import") } }
                 )
                 

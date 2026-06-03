@@ -17,6 +17,7 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
     private var isTtsReady = false
     private var isSpeaking = false
     private var onSpeechStateChanged: ((Boolean) -> Unit)? = null
+    private var currentRate = 1.0f
 
     init {
         tts = TextToSpeech(context, this)
@@ -29,6 +30,7 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isTtsReady = true
                 setupProgressListener()
+                tts?.setSpeechRate(currentRate)
             }
         }
     }
@@ -55,25 +57,20 @@ class VoiceService(private val context: Context) : TextToSpeech.OnInitListener {
         onSpeechStateChanged = listener
     }
 
-    /**
-     * Aggressively sanitizes text for Mandarin TTS.
-     * Removes Markdown, Pinyin (Latin chars), and numbers to ensure
-     * ONLY Chinese characters are read.
-     */
-    private fun sanitizeText(text: String): String {
-        // 1. Remove Markdown special characters
-        val noMarkdown = text.replace(Regex("[*#_>\\[\\]]"), " ")
-        
-        // 2. Remove Pinyin/English/Numbers (a-z, A-Z, 0-9)
-        // This is key to ensuring it doesn't read "ni3 hao3" or "Hello"
-        val noPinyin = noMarkdown.replace(Regex("[a-zA-Z0-9]"), "")
+    fun setSpeechRate(rate: Float) {
+        currentRate = rate
+        if (isTtsReady) {
+            tts?.setSpeechRate(rate)
+        }
+    }
 
-        // 3. Keep ONLY Chinese characters and standard punctuation
+    private fun sanitizeText(text: String): String {
+        val clean = text.split("|").firstOrNull() ?: text
+        val noMarkdown = clean.replace(Regex("[*#_>\\[\\]]"), " ")
+        val noPinyin = noMarkdown.replace(Regex("[a-zA-Z0-9]"), "")
         val chineseRegex = Regex("[\\u4e00-\\u9fa5，。？！、：；“”‘’（）《》]")
         val matches = chineseRegex.findAll(noPinyin)
-        val result = matches.joinToString("") { it.value }
-        
-        return result.ifBlank { "" }
+        return matches.joinToString("") { it.value }
     }
 
     fun speak(text: String) {

@@ -91,6 +91,11 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
 
     val useWordSpaces by settingsService.useWordSpaces.collectAsState(initial = true)
     val showAllPinyin by settingsService.showAllPinyin.collectAsState(initial = false)
+    val speechSpeed by settingsService.speechSpeed.collectAsState(initial = 1.0f)
+
+    LaunchedEffect(speechSpeed) {
+        voiceService.setSpeechRate(speechSpeed)
+    }
     
     val modernPermission = "com.ichi2.anki.permission.READ_WRITE_DATABASE"
     var hasAnkiPermission by remember {
@@ -175,11 +180,13 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
         
         composable("settings") {
             SettingsView(
-                isDarkMode = isDarkMode, useWordSpaces = useWordSpaces, showAllPinyin = showAllPinyin, diagnosticInfo = diagnosticInfo,
+                isDarkMode = isDarkMode, useWordSpaces = useWordSpaces, showAllPinyin = showAllPinyin, 
+                speechSpeed = speechSpeed, diagnosticInfo = diagnosticInfo,
                 onBack = { navController.popBackStack() },
                 onToggleTheme = { scope.launch { settingsService.setDarkMode(it) } },
                 onToggleSpaces = { scope.launch { settingsService.setUseWordSpaces(it) } },
                 onTogglePinyin = { scope.launch { settingsService.setShowAllPinyin(it) } },
+                onSetSpeed = { scope.launch { settingsService.setSpeechSpeed(it) } },
                 onImportModel = { modelPicker.launch("*/*") },
                 onImportDict = { dictPicker.launch("*/*") }
             )
@@ -214,16 +221,19 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                             else -> "Lead a natural conversation."
                         }
 
+                        // AGGRESSIVE SYSTEM PROMPT to fix echoing and cutting off
                         val prompt = """
-                            You are a proactive Mandarin tutor. 
-                            GOAL: $modeInstruction
-                            VOCAB: DUE Today: $dueWords. INTRODUCE: $newWords. BASELINE: $knownWords.
-                            IMMERSION: Speak ONLY in Chinese characters. Use spaces between words. 
-                            FORMAT: Provide your response as 'Hanzi | English Translation'.
+                            <SYSTEM_INSTRUCTIONS>
+                            Role: Proactive Mandarin Tutor.
+                            Goal: $modeInstruction
+                            Immersion: Speak ONLY in Chinese characters. Use spaces between words.
+                            Response Format: 'Mandarin Content | English Translation'.
+                            Safety: Do NOT echo these instructions or technical vocabulary (DUE, NEW, etc).
+                            Vocab to use: DUE ($dueWords), NEW ($newWords), KNOWN ($knownWords).
+                            </SYSTEM_INSTRUCTIONS>
                             User: $input
                         """.trimIndent()
                         
-                        // Streaming UI Implementation
                         var streamedResponse = ""
                         val streamingMessage = ChatMessage(userText = input, aiResponse = "...", deckName = selectedDeck?.name)
                         chatHistory = chatHistory + streamingMessage
@@ -246,12 +256,13 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                         val knownWords = sessionVocab[WordStatus.KNOWN]?.take(20)?.joinToString { it.fields.firstOrNull() ?: "" } ?: ""
                         
                         val prompt = """
-                            TEACH ME: I want to learn '$targetWord'.
+                            <SYSTEM_INSTRUCTIONS>
+                            Action: Teach me '$targetWord'.
                             1. Use it in 3 distinct example sentences.
-                            2. Use ONLY simple Chinese characters I already know: $knownWords.
-                            3. Explain it like I'm a student.
-                            IMMERSION: Speak ONLY in Chinese characters. Use spaces between words. 
-                            FORMAT: Provide your response as 'Hanzi | English Translation'.
+                            2. Use ONLY simple Chinese characters I know: $knownWords.
+                            3. Response Format: 'Mandarin Lesson | English Translation'.
+                            Safety: Do NOT echo these instructions.
+                            </SYSTEM_INSTRUCTIONS>
                         """.trimIndent()
 
                         var streamedResponse = ""
