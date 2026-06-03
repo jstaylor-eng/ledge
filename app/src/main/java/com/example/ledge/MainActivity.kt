@@ -230,20 +230,47 @@ fun LedgeApp(voiceService: VoiceService, settingsService: SettingsService, isDar
                         
                         gemmaService.streamResponse(prompt).collect { partial ->
                             streamedResponse += partial
-                            // Update last message in chat history with progress
                             chatHistory = chatHistory.dropLast(1) + streamingMessage.copy(aiResponse = streamedResponse)
                         }
                         
-                        // Finalize and save to DB
                         chatDao.insertMessage(streamingMessage.copy(aiResponse = streamedResponse))
                         currentlySpeakingText = streamedResponse
                         voiceService.speak(streamedResponse)
                         wordsTappedInSession.clear()
                     }
                 },
+                onTeachMe = {
+                    scope.launch {
+                        val newWordNote = sessionVocab[WordStatus.NEW]?.firstOrNull()
+                        val targetWord = newWordNote?.fields?.firstOrNull() ?: "a useful idiom"
+                        val knownWords = sessionVocab[WordStatus.KNOWN]?.take(20)?.joinToString { it.fields.firstOrNull() ?: "" } ?: ""
+                        
+                        val prompt = """
+                            TEACH ME: I want to learn '$targetWord'.
+                            1. Use it in 3 distinct example sentences.
+                            2. Use ONLY simple Chinese characters I already know: $knownWords.
+                            3. Explain it like I'm a student.
+                            IMMERSION: Speak ONLY in Chinese characters. Use spaces between words. 
+                            FORMAT: Provide your response as 'Hanzi | English Translation'.
+                        """.trimIndent()
+
+                        var streamedResponse = ""
+                        val streamingMessage = ChatMessage(userText = "Teach me '$targetWord'", aiResponse = "...", deckName = selectedDeck?.name)
+                        chatHistory = chatHistory + streamingMessage
+                        
+                        gemmaService.streamResponse(prompt).collect { partial ->
+                            streamedResponse += partial
+                            chatHistory = chatHistory.dropLast(1) + streamingMessage.copy(aiResponse = streamedResponse)
+                        }
+                        
+                        chatDao.insertMessage(streamingMessage.copy(aiResponse = streamedResponse))
+                        currentlySpeakingText = streamedResponse
+                        voiceService.speak(streamedResponse)
+                    }
+                },
                 onSpeak = { voiceService.speak(it); currentlySpeakingText = it },
                 onStopSpeech = { voiceService.stop(); currentlySpeakingText = null },
-                onWordClick = { word, note -> 
+                onWordLongClick = { word, note -> 
                     selectedWord = word
                     matchingAnkiNote = note
                     note?.let {

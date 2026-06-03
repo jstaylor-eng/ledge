@@ -32,9 +32,10 @@ fun ChatView(
     transcription: String?,
     onBack: () -> Unit,
     onSendMessage: (String) -> Unit,
+    onTeachMe: () -> Unit,
     onSpeak: (String) -> Unit,
     onStopSpeech: () -> Unit,
-    onWordClick: (String, AnkiNote?) -> Unit,
+    onWordLongClick: (String, AnkiNote?) -> Unit,
     onTogglePinyin: (Boolean) -> Unit,
     onRequestMic: () -> Unit,
     onStartMic: () -> Unit
@@ -57,10 +58,14 @@ fun ChatView(
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("AI Tutor") },
+                    title = { Text("AI Tutor", style = MaterialTheme.typography.titleMedium) },
                     navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") } },
                     actions = {
-                        // Quick Pinyin Toggle (Du Chinese style)
+                        // Teach Me Button
+                        TextButton(onClick = onTeachMe) {
+                            Text("Teach Me", color = MaterialTheme.colorScheme.primary)
+                        }
+                        // Quick Pinyin Toggle
                         TextButton(onClick = { onTogglePinyin(!showAllPinyin) }) {
                             Text(
                                 text = if (showAllPinyin) "Pinyin ON" else "Pinyin OFF",
@@ -75,7 +80,7 @@ fun ChatView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.primaryContainer)
-                            .clickable { focusedTranslation = null } // Tap to hide
+                            .clickable { focusedTranslation = null }
                             .padding(16.dp)
                     ) {
                         Text(
@@ -101,16 +106,24 @@ fun ChatView(
                         isSpeaking = currentlySpeakingText == message.aiResponse,
                         onSpeak = { onSpeak(message.aiResponse) },
                         onStop = onStopSpeech,
-                        onWordClick = onWordClick,
+                        onWordLongClick = onWordLongClick,
                         onFocus = { focusedTranslation = it }
                     )
                 }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 16.dp, top = 8.dp)) {
-                OutlinedTextField(value = chatInput, onValueChange = { chatInput = it }, modifier = Modifier.weight(1f), placeholder = { Text("Chat...") })
+                OutlinedTextField(
+                    value = chatInput, 
+                    onValueChange = { chatInput = it }, 
+                    modifier = Modifier.weight(1f), 
+                    placeholder = { Text("Chat...") },
+                    shape = MaterialTheme.shapes.medium
+                )
                 Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = { if (isMicPermissionGranted) onStartMic() else onRequestMic() }) { Text("🎤") }
+                IconButton(onClick = { if (isMicPermissionGranted) onStartMic() else onRequestMic() }) { 
+                    Text("🎤", style = MaterialTheme.typography.headlineSmall) 
+                }
                 Button(onClick = { if (chatInput.isNotBlank()) { onSendMessage(chatInput); chatInput = "" } }) { Text("Send") }
             }
         }
@@ -126,7 +139,7 @@ fun ChatBubble(
     isSpeaking: Boolean,
     onSpeak: () -> Unit,
     onStop: () -> Unit,
-    onWordClick: (String, AnkiNote?) -> Unit,
+    onWordLongClick: (String, AnkiNote?) -> Unit,
     onFocus: (String) -> Unit
 ) {
     val parts = message.aiResponse.split("|")
@@ -146,7 +159,7 @@ fun ChatBubble(
                     vocabMap = vocabMap,
                     ankiNotes = ankiNotes,
                     showAllPinyin = showAllPinyin,
-                    onWordClick = onWordClick
+                    onWordLongClick = onWordLongClick
                 )
 
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
@@ -154,7 +167,7 @@ fun ChatBubble(
                         if (isSpeaking) Text("⏹️") else Icon(Icons.Default.PlayArrow, contentDescription = "Speak")
                     }
                     Spacer(modifier = Modifier.weight(1f))
-                    Text("Tap for English", style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = Color.Gray)
+                    Text("Hold word for dict", style = MaterialTheme.typography.labelSmall, fontStyle = FontStyle.Italic, color = Color.Gray)
                 }
             }
         }
